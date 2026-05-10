@@ -1,0 +1,54 @@
+name: Flight Deals Scanner
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run without sending Telegram alerts"
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python -m pip install -e .
+
+      - name: Run scanner
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+          TRAVELPAYOUTS_MARKER: ${{ secrets.TRAVELPAYOUTS_MARKER }}
+          AMADEUS_CLIENT_ID: ${{ secrets.AMADEUS_CLIENT_ID }}
+          AMADEUS_CLIENT_SECRET: ${{ secrets.AMADEUS_CLIENT_SECRET }}
+          SEARCHAPI_KEY: ${{ secrets.SEARCHAPI_KEY }}
+          KIWI_API_KEY: ${{ secrets.KIWI_API_KEY }}
+          SKYSCANNER_API_KEY: ${{ secrets.SKYSCANNER_API_KEY }}
+          SKYSCANNER_ENABLED: ${{ vars.SKYSCANNER_ENABLED || 'false' }}
+          ORIGINS: ${{ vars.ORIGINS || 'TPE,TSA,KHH,RMQ,TNN' }}
+          CURRENCY: ${{ vars.CURRENCY || 'TWD' }}
+          STAY_LENGTHS: ${{ vars.STAY_LENGTHS || '3,5,7,10,14,21' }}
+          CABINS: ${{ vars.CABINS || 'economy,business,first' }}
+          REQUIRE_VERIFIED_ALERTS: ${{ vars.REQUIRE_VERIFIED_ALERTS || 'false' }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="--dry-run"
+          fi
+          python -m flight_deals_bot $ARGS

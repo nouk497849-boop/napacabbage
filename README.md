@@ -1,0 +1,80 @@
+# 台灣出發低價機票推播機器人
+
+這是一個 Python 查價機器人，預設從 `TPE/TSA/KHH/RMQ/TNN` 出發，掃描未來 12 個月、來回 3-21 晚、可轉機的全球低價票，並用 Telegram 推播明顯低於基準價的票。
+
+重點設計：
+
+- 優先用免費或低額度資料源，並用 daily/monthly quota 防止 overage。
+- Travelpayouts/Amadeus 做低成本探索，SearchApi/Kiwi/Amadeus 做高分候選驗價。
+- 商務艙與頭等艙採「最長航段為準」，混艙會在通知中標示。
+- Postgres 保存 quote、rolling median baseline、quota usage、24 小時去重紀錄。
+
+## 快速開始
+
+```powershell
+python -m pip install -e ".[test]"
+Copy-Item .env.example .env
+python -m flight_deals_bot --list-sources
+python -m flight_deals_bot --dry-run
+python -m pytest
+```
+
+`.env` 會被自動讀取。本機 dry-run 沒有 `DATABASE_URL` 時會使用記憶體資料庫，只適合測試；GitHub Actions 長期執行請設定 Postgres。
+
+## 必要設定
+
+Telegram：
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+
+Postgres：
+
+- `DATABASE_URL`
+- 第一次部署後可手動跑：`python -m flight_deals_bot --init-db`
+
+資料源 keys，全部都是選填，缺 key 會自動停用：
+
+- `TRAVELPAYOUTS_TOKEN`
+- `AMADEUS_CLIENT_ID`
+- `AMADEUS_CLIENT_SECRET`
+- `SEARCHAPI_KEY`
+- `KIWI_API_KEY`
+- `SKYSCANNER_API_KEY` + `SKYSCANNER_ENABLED=true`
+
+## GitHub Actions
+
+已提供 `.github/workflows/flight-deals.yml`：
+
+- 每 3 小時自動執行一次。
+- 支援 `workflow_dispatch` 手動 dry-run。
+- secrets 放 API key、Telegram、`DATABASE_URL`。
+- vars 可調整 `ORIGINS`、`STAY_LENGTHS`、`CABINS`、`REQUIRE_VERIFIED_ALERTS`。
+
+建議先在 GitHub 手動執行 dry-run，確認資料源與資料庫正常，再讓排程自動發送。
+
+## Quota 與通知邏輯
+
+預設 quota 在 `.env.example`，例如 SearchApi 預設 `3/day`、`100/month`，用於驗證最有價值候選。設為 `0` 可停用某來源。
+
+通知門檻：
+
+- 經濟艙：低於 rolling baseline 約 30%。
+- 豪華經濟艙：低於約 40%。
+- 商務艙：低於約 45%。
+- 頭等艙：低於約 55%。
+
+同一 deal 24 小時內不重複推播，除非新價格比上次推播再低 5% 以上。
+
+## 專案結構
+
+- `src/flight_deals_bot/config.py`：環境變數與搜尋設定。
+- `src/flight_deals_bot/storage.py`：Postgres/In-memory storage、quota、baseline、alert cooldown。
+- `src/flight_deals_bot/sources/`：Travelpayouts、Amadeus、SearchApi、Kiwi、Skyscanner adapters。
+- `src/flight_deals_bot/scoring.py`：低價判定與商務/頭等艙混艙規則。
+- `src/flight_deals_bot/pipeline.py`：discovery -> verification -> scoring -> Telegram。
+- `tests/`：parser、scoring、quota、pipeline dry-run 測試。
+
+## 注意
+
+這個機器人不自動訂票、不保留座位、不保證票價仍存在。推播中的快取候選票請務必進入來源網站或航空公司頁面重新確認價格、行李、退改、簽證與自轉機風險。
