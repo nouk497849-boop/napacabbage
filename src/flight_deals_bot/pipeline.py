@@ -8,7 +8,7 @@ from typing import Iterable, TextIO
 from .config import AppConfig
 from .http import HttpError, JsonHttpClient
 from .models import Cabin, DealScore, Quote
-from .notifier import TelegramNotifier
+from .notifier import TelegramNotifier, format_no_deals_message
 from .scoring import find_baseline, score_quote, should_suppress_alert
 from .sources import AmadeusAdapter, KiwiAdapter, SearchApiAdapter, SkyscannerAdapter, TravelpayoutsAdapter
 from .sources.base import SourceAdapter, SourceContext
@@ -105,7 +105,22 @@ def run_pipeline(
         if not dry_run:
             store.record_alert(score.quote, score.score, score.baseline, message)
 
-    if dry_run:
+    if not scores and config.search.notify_no_deals:
+        no_deals_message = format_no_deals_message(
+            discovered_count=len(discovered),
+            verified_count=len(verified),
+            scored_count=0,
+            enabled_sources=[adapter.name for adapter in enabled_adapters],
+            source_errors=source_errors,
+        )
+        messages.append(no_deals_message)
+        if dry_run:
+            print("\n--- DRY RUN NO-DEAL NOTICE ---", file=output)
+            print(no_deals_message, file=output)
+        else:
+            notifier.send_text(no_deals_message)
+
+    if dry_run and scores:
         for message in messages:
             print("\n--- DRY RUN ALERT ---", file=output)
             print(message, file=output)

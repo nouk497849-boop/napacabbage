@@ -55,6 +55,8 @@ Postgres：
 
 若只想確認 Telegram 設定是否正確，手動執行 workflow 時把 `test_telegram=true`。這會只發一則測試訊息，不會查價。
 
+預設 `NOTIFY_NO_DEALS=true`，正式排程每次跑完即使沒有低價票，也會發一則「目前沒有找到符合低價門檻的機票」摘要。若覺得太吵，可在 GitHub Variables 設為 `false`。
+
 ## Quota 與通知邏輯
 
 預設 quota 在 `.env.example`，例如 SearchApi 預設 `3/day`、`100/month`，用於驗證最有價值候選。設為 `0` 可停用某來源。

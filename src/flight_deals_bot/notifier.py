@@ -71,3 +71,24 @@ def format_deal_message(score: DealScore) -> str:
 def format_money(value: Decimal, currency: str) -> str:
     amount = value.quantize(Decimal("1"))
     return f"{currency} {amount:,}"
+
+
+def format_no_deals_message(
+    discovered_count: int,
+    verified_count: int,
+    scored_count: int,
+    enabled_sources: list[str],
+    source_errors: dict[str, str] | None = None,
+) -> str:
+    lines = [
+        "<b>機票價格查詢完成</b>",
+        "目前沒有找到符合低價門檻的機票。",
+        f"候選票：{discovered_count}",
+        f"驗價票：{verified_count}",
+        f"符合門檻：{scored_count}",
+        "資料源：" + html.escape(", ".join(enabled_sources) if enabled_sources else "none"),
+    ]
+    if source_errors:
+        compact = "; ".join(f"{key}: {value}" for key, value in source_errors.items())
+        lines.append("錯誤：" + html.escape(compact[:500]))
+    return "\n".join(lines)

@@ -84,6 +84,7 @@ def _config() -> AppConfig:
             top_verify_limit=5,
             max_alerts_per_run=3,
             require_verified_alerts=False,
+            notify_no_deals=True,
             alert_cooldown=timedelta(hours=24),
             alert_price_drop_pct=5,
         ),

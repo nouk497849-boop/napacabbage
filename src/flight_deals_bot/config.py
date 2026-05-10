@@ -40,6 +40,7 @@ class SearchConfig:
     top_verify_limit: int
     max_alerts_per_run: int
     require_verified_alerts: bool
+    notify_no_deals: bool
     alert_cooldown: timedelta
     alert_price_drop_pct: int
 
@@ -82,6 +83,7 @@ def load_config(env_file: str | None = ".env") -> AppConfig:
         top_verify_limit=_int("TOP_VERIFY_LIMIT", 18),
         max_alerts_per_run=_int("MAX_ALERTS_PER_RUN", 8),
         require_verified_alerts=_bool("REQUIRE_VERIFIED_ALERTS", False),
+        notify_no_deals=_bool("NOTIFY_NO_DEALS", True),
         alert_cooldown=timedelta(hours=_int("ALERT_COOLDOWN_HOURS", 24)),
         alert_price_drop_pct=_int("ALERT_PRICE_DROP_PCT", 5),
     )
