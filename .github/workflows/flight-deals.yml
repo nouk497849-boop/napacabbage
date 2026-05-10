@@ -10,6 +10,11 @@ on:
         required: true
         type: boolean
         default: true
+      test_telegram:
+        description: "Send a Telegram test message instead of scanning"
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   scan:
@@ -57,6 +62,10 @@ jobs:
           SKYSCANNER_DAILY_LIMIT: ${{ vars.SKYSCANNER_DAILY_LIMIT || '0' }}
           SKYSCANNER_MONTHLY_LIMIT: ${{ vars.SKYSCANNER_MONTHLY_LIMIT || '0' }}
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.test_telegram }}" = "true" ]; then
+            python -m flight_deals_bot --test-telegram
+            exit 0
+          fi
           ARGS=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
             ARGS="--dry-run"

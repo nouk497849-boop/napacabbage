@@ -53,6 +53,8 @@ Postgres：
 
 建議先在 GitHub 手動執行 dry-run，確認資料源與資料庫正常，再讓排程自動發送。
 
+若只想確認 Telegram 設定是否正確，手動執行 workflow 時把 `test_telegram=true`。這會只發一則測試訊息，不會查價。
+
 ## Quota 與通知邏輯
 
 預設 quota 在 `.env.example`，例如 SearchApi 預設 `3/day`、`100/month`，用於驗證最有價值候選。設為 `0` 可停用某來源。

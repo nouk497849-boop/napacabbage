@@ -22,6 +22,10 @@ class TelegramNotifier:
         message = format_deal_message(score)
         if dry_run:
             return message
+        self.send_text(message)
+        return message
+
+    def send_text(self, message: str) -> None:
         if not self.enabled():
             raise RuntimeError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required to send alerts")
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
@@ -34,7 +38,6 @@ class TelegramNotifier:
                 "disable_web_page_preview": False,
             },
         )
-        return message
 
 
 def format_deal_message(score: DealScore) -> str:
