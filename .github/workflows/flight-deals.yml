@@ -46,6 +46,16 @@ jobs:
           STAY_LENGTHS: ${{ vars.STAY_LENGTHS || '3,5,7,10,14,21' }}
           CABINS: ${{ vars.CABINS || 'economy,business,first' }}
           REQUIRE_VERIFIED_ALERTS: ${{ vars.REQUIRE_VERIFIED_ALERTS || 'false' }}
+          TRAVELPAYOUTS_DAILY_LIMIT: ${{ vars.TRAVELPAYOUTS_DAILY_LIMIT || '240' }}
+          TRAVELPAYOUTS_MONTHLY_LIMIT: ${{ vars.TRAVELPAYOUTS_MONTHLY_LIMIT || '3000' }}
+          AMADEUS_DAILY_LIMIT: ${{ vars.AMADEUS_DAILY_LIMIT || '80' }}
+          AMADEUS_MONTHLY_LIMIT: ${{ vars.AMADEUS_MONTHLY_LIMIT || '1000' }}
+          SEARCHAPI_DAILY_LIMIT: ${{ vars.SEARCHAPI_DAILY_LIMIT || '3' }}
+          SEARCHAPI_MONTHLY_LIMIT: ${{ vars.SEARCHAPI_MONTHLY_LIMIT || '100' }}
+          KIWI_DAILY_LIMIT: ${{ vars.KIWI_DAILY_LIMIT || '60' }}
+          KIWI_MONTHLY_LIMIT: ${{ vars.KIWI_MONTHLY_LIMIT || '1000' }}
+          SKYSCANNER_DAILY_LIMIT: ${{ vars.SKYSCANNER_DAILY_LIMIT || '0' }}
+          SKYSCANNER_MONTHLY_LIMIT: ${{ vars.SKYSCANNER_MONTHLY_LIMIT || '0' }}
         run: |
           ARGS=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then

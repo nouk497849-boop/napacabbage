@@ -82,3 +82,5 @@ Postgres：
 ## SearchApi-only 模式
 
 如果你目前只有 `SEARCHAPI_KEY`，機器人會用 SearchApi 的 Google Travel Explore 從台灣出發搜尋 anywhere 候選，再用 Google Flights API 對高分候選驗價。免費額度很小，預設 `SEARCHAPI_DAILY_LIMIT=3`，所以會優先掃 `TPE` 的商務艙、頭等艙、經濟艙；若要涵蓋更多出發機場，請提高 daily/monthly limit 或補上 Travelpayouts/Amadeus/Kiwi 作為探索來源。
+
+`dry_run=true` 仍會打真實 API，也會記錄 quota usage，避免測試時不小心超出免費額度。若要在同一天多測幾次，可在 GitHub Actions Variables 新增或調高 `SEARCHAPI_DAILY_LIMIT`，例如 `6` 或 `9`，前提是你的 SearchApi 帳號額度足夠。
