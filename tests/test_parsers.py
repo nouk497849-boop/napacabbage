@@ -128,3 +128,34 @@ def test_searchapi_parser_uses_price_insight_hint() -> None:
     assert quotes[0].price == Decimal("7000")
     assert quotes[0].baseline_price_hint == Decimal("11000")
     assert quotes[0].booking_url == "https://example.test/search"
+
+
+def test_searchapi_explore_parser_creates_discovery_candidates() -> None:
+    payload = {
+        "search_metadata": {"html_url": "https://example.test/explore"},
+        "search_parameters": {"currency": "TWD"},
+        "destinations": [
+            {
+                "name": "Tokyo",
+                "primary_airport": "NRT",
+                "outbound_date": "2026-10-01",
+                "return_date": "2026-10-08",
+                "flight": {
+                    "airport_code": "NRT",
+                    "price": 32000,
+                    "stops": 1,
+                    "airline_code": "CI",
+                    "airline_name": "China Airlines",
+                },
+            }
+        ],
+    }
+
+    quotes = SearchApiAdapter().parse_explore(payload, origin="TPE", cabin=Cabin.BUSINESS, currency="TWD")
+
+    assert len(quotes) == 1
+    assert quotes[0].source == "searchapi"
+    assert quotes[0].origin == "TPE"
+    assert quotes[0].destination == "NRT"
+    assert quotes[0].cabin == Cabin.BUSINESS
+    assert quotes[0].verified is False

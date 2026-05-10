@@ -78,3 +78,7 @@ Postgres：
 ## 注意
 
 這個機器人不自動訂票、不保留座位、不保證票價仍存在。推播中的快取候選票請務必進入來源網站或航空公司頁面重新確認價格、行李、退改、簽證與自轉機風險。
+
+## SearchApi-only 模式
+
+如果你目前只有 `SEARCHAPI_KEY`，機器人會用 SearchApi 的 Google Travel Explore 從台灣出發搜尋 anywhere 候選，再用 Google Flights API 對高分候選驗價。免費額度很小，預設 `SEARCHAPI_DAILY_LIMIT=3`，所以會優先掃 `TPE` 的商務艙、頭等艙、經濟艙；若要涵蓋更多出發機場，請提高 daily/monthly limit 或補上 Travelpayouts/Amadeus/Kiwi 作為探索來源。

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 from decimal import Decimal
 
 from ..config import AppConfig
-from ..dates import parse_datetime
+from ..dates import parse_date, parse_datetime
 from ..models import Cabin, Quote, Segment
 from .base import BaseAdapter, SourceContext, safe_decimal
 
@@ -22,6 +23,37 @@ class SearchApiAdapter(BaseAdapter):
 
     def enabled(self, config: AppConfig) -> bool:
         return bool(config.api.searchapi_key)
+
+    def discover(self, ctx: SourceContext) -> list[Quote]:
+        key = ctx.config.api.searchapi_key
+        if not key:
+            return []
+        quotes: list[Quote] = []
+        # SearchApi free tiers are small, so prioritize premium cabins on the
+        # strongest Taiwan gateway first; quota limits stop the loop naturally.
+        cabins = sorted(ctx.config.search.cabins, key=_cabin_priority)
+        for origin in ctx.config.search.origins:
+            for cabin in cabins:
+                payload = ctx.get_json(
+                    self.name,
+                    self.endpoint,
+                    params={
+                        "api_key": key,
+                        "engine": "google_travel_explore",
+                        "departure_id": origin,
+                        "time_period": "one_week_trip_in_the_next_six_months",
+                        "travel_mode": "flights_only",
+                        "travel_class": SEARCHAPI_CLASS[cabin],
+                        "stops": "any",
+                        "currency": ctx.config.search.currency,
+                        "gl": "tw",
+                        "hl": "zh-tw",
+                        "adults": ctx.config.search.adults,
+                    },
+                )
+                if payload:
+                    quotes.extend(self.parse_explore(payload, origin=origin, cabin=cabin, currency=ctx.config.search.currency))
+        return [quote for quote in quotes if self._within_search_window(ctx, quote)]
 
     def verify(self, ctx: SourceContext, candidates: list[Quote]) -> list[Quote]:
         key = ctx.config.api.searchapi_key
@@ -106,6 +138,55 @@ class SearchApiAdapter(BaseAdapter):
             )
         return quotes
 
+    def parse_explore(self, payload: dict, origin: str, cabin: Cabin, currency: str) -> list[Quote]:
+        metadata = payload.get("search_metadata") or {}
+        booking_url = metadata.get("html_url") or metadata.get("request_url")
+        search_parameters = payload.get("search_parameters") or {}
+        result_currency = str(search_parameters.get("currency") or currency).upper()
+        quotes: list[Quote] = []
+        for item in payload.get("destinations") or []:
+            if not isinstance(item, dict):
+                continue
+            flight = item.get("flight") or {}
+            price = safe_decimal(flight.get("price"))
+            destination = flight.get("airport_code") or item.get("primary_airport")
+            departure = parse_date(item.get("outbound_date") or item.get("alternative_outbound_date"))
+            return_date = parse_date(item.get("return_date"))
+            if not (price and destination and departure and return_date):
+                continue
+            airline = flight.get("airline_code") or flight.get("airline_name")
+            if flight.get("airline_name") and flight.get("airline_code"):
+                airline = f"{flight['airline_code']} {flight['airline_name']}"
+            quotes.append(
+                Quote(
+                    source=self.name,
+                    origin=origin,
+                    destination=destination,
+                    departure_date=departure,
+                    return_date=return_date,
+                    cabin=cabin,
+                    price=price,
+                    currency=result_currency,
+                    airline=airline,
+                    stops=_int_or_none(flight.get("stops")),
+                    booking_url=booking_url,
+                    raw=item,
+                    verified=False,
+                    notes=("SearchApi explore is a broad Google Travel candidate; verify before booking.",),
+                )
+            )
+        return quotes
+
+    def _within_search_window(self, ctx: SourceContext, quote: Quote) -> bool:
+        today = date.today()
+        min_date = today + timedelta(days=ctx.config.search.min_days_ahead)
+        max_date = today + timedelta(days=ctx.config.search.max_days_ahead)
+        if not (min_date <= quote.departure_date <= max_date):
+            return False
+        if quote.return_date is None:
+            return False
+        return quote.stay_nights in ctx.config.search.stay_lengths
+
 
 def _parse_segments(item: dict, fallback: Quote) -> list[Segment]:
     raw_segments = []
@@ -158,6 +239,15 @@ def _first_airline(segments: list[Segment]) -> str | None:
         if segment.marketing_carrier:
             return segment.marketing_carrier
     return None
+
+
+def _cabin_priority(cabin: Cabin) -> int:
+    return {
+        Cabin.BUSINESS: 0,
+        Cabin.FIRST: 1,
+        Cabin.PREMIUM_ECONOMY: 2,
+        Cabin.ECONOMY: 3,
+    }[cabin]
 
 
 def _int_or_none(value: object) -> int | None:
