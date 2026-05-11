@@ -57,8 +57,9 @@ def test_no_deals_message_includes_counts() -> None:
     assert "候選票前幾筆" in message
     assert "Taiwan Taoyuan International Airport" in message
     assert "Narita International Airport" in message
-    assert "Taiwan" in message
-    assert "Japan" in message
+    assert "台灣" in message
+    assert "日本" in message
+    assert "<b>亞洲</b>" in message
     assert "TWD 32,000" in message
     assert "約原價" in message
     assert '<a href="' in message
@@ -87,7 +88,8 @@ def test_deal_message_includes_route_country_and_fallback_link() -> None:
     message = format_deal_message(score)
 
     assert "Taiwan Taoyuan International Airport" in message
-    assert "Japan" in message
+    assert "日本" in message
+    assert "分類：亞洲" in message
     assert "目前約為原價 58%" in message
     assert "查看票價 / 搜尋此航線" in message
     assert "https://www.google.com/travel/flights/search?" in message

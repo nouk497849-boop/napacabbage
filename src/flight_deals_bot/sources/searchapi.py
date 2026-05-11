@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from statistics import median
 
+from ..airports import airport_continent_key
 from ..config import AppConfig
 from ..dates import parse_date, parse_datetime
 from ..models import Cabin, Quote, Segment
@@ -429,7 +430,7 @@ def _calendar_destinations(ctx: SourceContext, explore_quotes: list[Quote]) -> t
         destination = destination.upper()
         if destination not in destinations:
             destinations.append(destination)
-    return tuple(destinations)
+    return tuple(_interleave_destinations_by_continent(destinations))
 
 
 def _calendar_windows(ctx: SourceContext) -> tuple[tuple[date, date], ...]:
@@ -501,6 +502,19 @@ def _weighted_origins(origins: tuple[str, ...]) -> tuple[str, ...]:
     weighted = [origin for origin in preferred if origin in origin_set]
     weighted.extend(origin for origin in origins if origin not in weighted)
     return tuple(weighted or origins)
+
+
+def _interleave_destinations_by_continent(destinations: list[str]) -> list[str]:
+    order = ("asia", "americas", "europe", "oceania", "africa", "other")
+    buckets: dict[str, list[str]] = {key: [] for key in order}
+    for destination in destinations:
+        buckets.setdefault(airport_continent_key(destination), []).append(destination)
+    interleaved: list[str] = []
+    while any(buckets.values()):
+        for key in order:
+            if buckets.get(key):
+                interleaved.append(buckets[key].pop(0))
+    return interleaved
 
 
 def _public_url(value: object) -> str | None:

@@ -72,7 +72,7 @@ def test_pipeline_dry_run_scores_and_formats_alert() -> None:
     assert "低價機票提醒" in result.messages[0]
     assert "Taiwan Taoyuan International Airport" in result.messages[0]
     assert "Narita International Airport" in result.messages[0]
-    assert "Japan" in result.messages[0]
+    assert "日本" in result.messages[0]
 
 
 def test_summary_candidates_keep_one_lowest_per_destination_cabin_and_rotate_countries() -> None:

@@ -5,7 +5,7 @@ import urllib.parse
 from dataclasses import dataclass
 from decimal import Decimal
 
-from .airports import airport_label
+from .airports import airport_continent_label, airport_label
 from .http import JsonHttpClient
 from .models import DealScore, Quote
 from .scoring import as_percent, as_price_ratio, display_reference_price
@@ -49,6 +49,7 @@ def format_deal_message(score: DealScore) -> str:
     lines = [
         f"<b>低價機票提醒</b>",
         f"航線：{html.escape(route)}",
+        f"分類：{html.escape(airport_continent_label(quote.destination))}",
         f"艙等：{html.escape(cabin)}",
         f"價格：{html.escape(format_money(quote.price, quote.currency))}",
         f"原價/基準：{html.escape(format_money(score.baseline.price, quote.currency))}，"
@@ -101,8 +102,12 @@ def format_no_deals_message(
     if candidates:
         lines.append("")
         lines.append("<b>候選票前幾筆</b>")
-        for index, quote in enumerate(candidates, start=1):
-            lines.append(format_candidate_line(index, quote))
+        index = 1
+        for continent, quotes in group_candidates_by_continent(candidates):
+            lines.append(f"<b>{html.escape(continent)}</b>")
+            for quote in quotes:
+                lines.append(format_candidate_line(index, quote))
+                index += 1
     if source_notes:
         compact_notes = "; ".join(source_notes)
         lines.append("診斷：" + html.escape(compact_notes[:700]))
@@ -121,15 +126,24 @@ def format_candidate_line(index: int, quote: Quote) -> str:
     airline = f", {html.escape(quote.airline)}" if quote.airline else ""
     reference = display_reference_price(quote)
     price_ratio = f", 約原價 {as_price_ratio(quote.price, reference)}" if reference else ""
+    continent = airport_continent_label(quote.destination)
     route = format_route(quote)
     link = quote_link(quote)
     return (
         f'{index}. <a href="{html.escape(link)}">{html.escape(route)}</a> '
         f"{quote.departure_date.isoformat()} -> {return_date}{stay}, "
-        f"{html.escape(cabin)}, {html.escape(format_money(quote.price, quote.currency))}"
+        f"{html.escape(continent)}, {html.escape(cabin)}, {html.escape(format_money(quote.price, quote.currency))}"
         f"{html.escape(price_ratio)}, "
         f"{html.escape(quote.source)}（{status}）{airline}{stops}"
     )
+
+
+def group_candidates_by_continent(candidates: list[Quote]) -> list[tuple[str, list[Quote]]]:
+    order = ["亞洲", "歐洲", "非洲", "美洲", "大洋洲", "其他"]
+    grouped: dict[str, list[Quote]] = {}
+    for quote in candidates:
+        grouped.setdefault(airport_continent_label(quote.destination), []).append(quote)
+    return [(continent, grouped[continent]) for continent in order if continent in grouped]
 
 
 def quote_link(quote: Quote) -> str:
