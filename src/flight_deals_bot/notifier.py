@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import html
+import urllib.parse
 from dataclasses import dataclass
 from decimal import Decimal
 
+from .airports import airport_label
 from .http import JsonHttpClient
 from .models import DealScore, Quote
 from .scoring import as_percent
@@ -42,10 +44,11 @@ class TelegramNotifier:
 
 def format_deal_message(score: DealScore) -> str:
     quote = score.quote
-    route = f"{quote.origin} -> {quote.destination}"
+    route = format_route(quote)
     cabin = quote.cabin.value.replace("_", " ").title()
     lines = [
-        f"<b>低價機票提醒</b> {html.escape(route)}",
+        f"<b>低價機票提醒</b>",
+        f"航線：{html.escape(route)}",
         f"艙等：{html.escape(cabin)}",
         f"價格：{html.escape(format_money(quote.price, quote.currency))}",
         f"基準：{html.escape(format_money(score.baseline.price, quote.currency))}，低 {html.escape(as_percent(score.discount))}",
@@ -63,14 +66,17 @@ def format_deal_message(score: DealScore) -> str:
         lines.append(f"混艙：是，最長航段為 {quote.longest_segment_cabin.value.replace('_', ' ').title()}")
     if quote.notes:
         lines.append("備註：" + html.escape("; ".join(quote.notes)))
-    if quote.booking_url:
-        lines.append(f"<a href=\"{html.escape(quote.booking_url)}\">查看票價</a>")
+    lines.append(f"<a href=\"{html.escape(quote_link(quote))}\">查看票價 / 搜尋此航線</a>")
     return "\n".join(lines)
 
 
 def format_money(value: Decimal, currency: str) -> str:
     amount = value.quantize(Decimal("1"))
     return f"{currency} {amount:,}"
+
+
+def format_route(quote: Quote) -> str:
+    return f"{airport_label(quote.origin)} -> {airport_label(quote.destination)}"
 
 
 def format_no_deals_message(
@@ -107,9 +113,25 @@ def format_candidate_line(index: int, quote: Quote) -> str:
     status = "已驗價" if quote.verified else "候選"
     stops = f", 轉機 {quote.stops} 次" if quote.stops is not None else ""
     airline = f", {html.escape(quote.airline)}" if quote.airline else ""
+    route = format_route(quote)
+    link = quote_link(quote)
     return (
-        f"{index}. {html.escape(quote.origin)}-{html.escape(quote.destination)} "
+        f'{index}. <a href="{html.escape(link)}">{html.escape(route)}</a> '
         f"{quote.departure_date.isoformat()} -> {return_date}{stay}, "
         f"{html.escape(cabin)}, {html.escape(format_money(quote.price, quote.currency))}, "
         f"{html.escape(quote.source)}（{status}）{airline}{stops}"
     )
+
+
+def quote_link(quote: Quote) -> str:
+    if quote.booking_url:
+        return quote.booking_url
+    params = {
+        "q": (
+            f"Google Flights {quote.origin} to {quote.destination} "
+            f"{quote.departure_date.isoformat()} "
+            f"{quote.return_date.isoformat() if quote.return_date else ''} "
+            f"{quote.cabin.value.replace('_', ' ')}"
+        )
+    }
+    return "https://www.google.com/search?" + urllib.parse.urlencode(params)

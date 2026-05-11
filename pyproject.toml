@@ -9,7 +9,9 @@ description = "Taiwan-origin flight deal scanner with Telegram alerts"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "airportsdata>=20241001",
   "psycopg[binary]>=3.2.0",
+  "pycountry>=24.6.1",
 ]
 
 [project.optional-dependencies]

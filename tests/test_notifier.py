@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 
 from flight_deals_bot.models import Cabin, Quote
-from flight_deals_bot.notifier import TelegramNotifier, format_no_deals_message
+from flight_deals_bot.notifier import TelegramNotifier, format_deal_message, format_no_deals_message
 
 
 class FakeHttp:
@@ -55,5 +55,37 @@ def test_no_deals_message_includes_counts() -> None:
     assert "候選票：58" in message
     assert "資料源：searchapi" in message
     assert "候選票前幾筆" in message
-    assert "TPE-NRT" in message
+    assert "Taiwan Taoyuan International Airport" in message
+    assert "Narita International Airport" in message
+    assert "Taiwan" in message
+    assert "Japan" in message
     assert "TWD 32,000" in message
+    assert '<a href="' in message
+
+
+def test_deal_message_includes_route_country_and_fallback_link() -> None:
+    from flight_deals_bot.models import Baseline, DealScore
+
+    quote = Quote(
+        source="fixture",
+        origin="TPE",
+        destination="NRT",
+        departure_date=date(2026, 10, 1),
+        return_date=date(2026, 10, 8),
+        cabin=Cabin.ECONOMY,
+        price=Decimal("7000"),
+    )
+    score = DealScore(
+        quote=quote,
+        baseline=Baseline(price=Decimal("12000"), sample_size=4, source="fixture"),
+        discount=Decimal("0.416"),
+        score=Decimal("41.6"),
+        reason="fixture",
+    )
+
+    message = format_deal_message(score)
+
+    assert "Taiwan Taoyuan International Airport" in message
+    assert "Japan" in message
+    assert "查看票價 / 搜尋此航線" in message
+    assert "https://www.google.com/search?" in message

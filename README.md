@@ -58,6 +58,7 @@ Postgres：
 
 預設 `NOTIFY_NO_DEALS=true`，正式排程每次跑完即使沒有低價票，也會發一則「目前沒有找到符合低價門檻的機票」摘要。若覺得太吵，可在 GitHub Variables 設為 `false`。
 摘要會列出最多 8 筆候選票；可用 `NO_DEAL_CANDIDATE_LIMIT` 調整，例如 `5` 或 `10`。
+正式低價票與候選票都會顯示機場名稱、國家，並附上來源連結；若來源沒有連結，會退回 Google 搜尋連結。
 
 ## Quota 與通知邏輯
 

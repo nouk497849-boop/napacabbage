@@ -37,7 +37,9 @@ def test_pipeline_dry_run_scores_and_formats_alert() -> None:
     assert result.discovered_count == 2
     assert result.alerted_count == 1
     assert "低價機票提醒" in result.messages[0]
-    assert "TPE -&gt; NRT" in result.messages[0]
+    assert "Taiwan Taoyuan International Airport" in result.messages[0]
+    assert "Narita International Airport" in result.messages[0]
+    assert "Japan" in result.messages[0]
 
 
 class FixtureAdapter(BaseAdapter):
