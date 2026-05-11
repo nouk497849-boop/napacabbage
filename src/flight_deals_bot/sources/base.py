@@ -44,9 +44,12 @@ class SourceContext:
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
-        if not self._consume(source):
+        if not self._quota_available(source):
             return None
-        return self.http.get_json(url, params=params, headers=headers)
+        self._mark_provider_request(source)
+        payload = self.http.get_json(url, params=params, headers=headers)
+        self._record_successful_request(source)
+        return payload
 
     def post_json(
         self,
@@ -55,9 +58,12 @@ class SourceContext:
         payload: dict[str, Any],
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
-        if not self._consume(source):
+        if not self._quota_available(source):
             return None
-        return self.http.post_json(url, payload=payload, headers=headers)
+        self._mark_provider_request(source)
+        response = self.http.post_json(url, payload=payload, headers=headers)
+        self._record_successful_request(source)
+        return response
 
     def post_form(
         self,
@@ -66,19 +72,26 @@ class SourceContext:
         payload: dict[str, Any],
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
-        if not self._consume(source):
+        if not self._quota_available(source):
             return None
-        return self.http.post_form(url, payload=payload, headers=headers)
+        self._mark_provider_request(source)
+        response = self.http.post_form(url, payload=payload, headers=headers)
+        self._record_successful_request(source)
+        return response
 
-    def _consume(self, source: str) -> bool:
+    def _quota_available(self, source: str) -> bool:
         limits = self.config.source_limits.get(source, SourceLimits(0, 0))
-        allowed = self.store.try_consume_quota(source, limits)
+        allowed = self.store.quota_available(source, limits)
         if not allowed:
             self.quota_blocked_sources.add(source)
             self.note(source, "quota limit reached; skipped provider request")
-        else:
-            self.provider_request_counts[source] = self.provider_request_counts.get(source, 0) + 1
         return allowed
+
+    def _mark_provider_request(self, source: str) -> None:
+        self.provider_request_counts[source] = self.provider_request_counts.get(source, 0) + 1
+
+    def _record_successful_request(self, source: str) -> None:
+        self.store.record_quota_usage(source)
 
 
 class BaseAdapter:

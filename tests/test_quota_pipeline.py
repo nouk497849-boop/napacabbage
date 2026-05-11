@@ -4,7 +4,10 @@ import io
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
+import pytest
+
 from flight_deals_bot.config import ApiConfig, AppConfig, SearchConfig
+from flight_deals_bot.http import HttpError
 from flight_deals_bot.models import Cabin, Quote, SourceLimits
 from flight_deals_bot.pipeline import run_pipeline
 from flight_deals_bot.sources.base import BaseAdapter, SourceContext
@@ -19,6 +22,36 @@ def test_in_memory_quota_enforces_daily_limit() -> None:
     assert store.try_consume_quota("x", limits, now=now) is True
     assert store.try_consume_quota("x", limits, now=now) is True
     assert store.try_consume_quota("x", limits, now=now) is False
+
+
+def test_source_context_records_quota_only_after_successful_http_response() -> None:
+    config = _config()
+    config.source_limits["fixture"] = SourceLimits(daily=1, monthly=1)
+    store = InMemoryStore()
+
+    failing = SourceContext(config=config, http=FailingHttp(), store=store)
+    with pytest.raises(HttpError):
+        failing.get_json("fixture", "https://example.test/fail")
+
+    assert store.quota_usage.get("fixture", []) == []
+    assert failing.provider_request_count("fixture") == 1
+
+    successful = SourceContext(config=config, http=SuccessHttp(), store=store)
+    assert successful.get_json("fixture", "https://example.test/ok") == {"ok": True}
+    assert len(store.quota_usage["fixture"]) == 1
+    assert successful.get_json("fixture", "https://example.test/skipped") is None
+    assert successful.was_quota_blocked("fixture") is True
+
+
+def test_quota_reset_clears_local_usage() -> None:
+    store = InMemoryStore()
+    limits = SourceLimits(daily=1, monthly=1)
+    assert store.try_consume_quota("searchapi", limits) is True
+    assert store.try_consume_quota("searchapi", limits) is False
+
+    store.reset_quota("searchapi")
+
+    assert store.try_consume_quota("searchapi", limits) is True
 
 
 def test_pipeline_dry_run_scores_and_formats_alert() -> None:
@@ -71,6 +104,16 @@ class FixtureAdapter(BaseAdapter):
                 airline="B",
             ),
         ]
+
+
+class FailingHttp:
+    def get_json(self, url, params=None, headers=None):  # noqa: ANN001
+        raise HttpError(500, url, "boom")
+
+
+class SuccessHttp:
+    def get_json(self, url, params=None, headers=None):  # noqa: ANN001
+        return {"ok": True}
 
 
 def _config() -> AppConfig:

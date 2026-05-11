@@ -10,7 +10,10 @@ from .models import AlertRecord, Baseline, Cabin, Quote, SourceLimits
 
 class Store(Protocol):
     def setup(self) -> None: ...
+    def quota_available(self, source: str, limits: SourceLimits, now: datetime | None = None) -> bool: ...
+    def record_quota_usage(self, source: str, now: datetime | None = None) -> None: ...
     def try_consume_quota(self, source: str, limits: SourceLimits, now: datetime | None = None) -> bool: ...
+    def reset_quota(self, source: str) -> None: ...
     def save_quotes(self, quotes: Iterable[Quote]) -> None: ...
     def rolling_baseline(self, quote: Quote, cabin: Cabin | None = None, min_samples: int = 3) -> Baseline | None: ...
     def recent_alert(self, quote: Quote, cooldown_hours: int) -> AlertRecord | None: ...
@@ -26,7 +29,7 @@ class InMemoryStore:
     def setup(self) -> None:
         return None
 
-    def try_consume_quota(self, source: str, limits: SourceLimits, now: datetime | None = None) -> bool:
+    def quota_available(self, source: str, limits: SourceLimits, now: datetime | None = None) -> bool:
         now = now or datetime.now(timezone.utc)
         if limits.daily <= 0 or limits.monthly <= 0:
             return False
@@ -34,8 +37,20 @@ class InMemoryStore:
         month_count = sum(1 for item in self.quota_usage[source] if item.year == now.year and item.month == now.month)
         if day_count >= limits.daily or month_count >= limits.monthly:
             return False
-        self.quota_usage[source].append(now)
         return True
+
+    def record_quota_usage(self, source: str, now: datetime | None = None) -> None:
+        self.quota_usage[source].append(now or datetime.now(timezone.utc))
+
+    def try_consume_quota(self, source: str, limits: SourceLimits, now: datetime | None = None) -> bool:
+        now = now or datetime.now(timezone.utc)
+        if not self.quota_available(source, limits, now=now):
+            return False
+        self.record_quota_usage(source, now=now)
+        return True
+
+    def reset_quota(self, source: str) -> None:
+        self.quota_usage.pop(source, None)
 
     def save_quotes(self, quotes: Iterable[Quote]) -> None:
         self.quotes.extend(quotes)
@@ -149,7 +164,7 @@ class PostgresStore:
                     cur.execute(statement)
             conn.commit()
 
-    def try_consume_quota(self, source: str, limits: SourceLimits, now: datetime | None = None) -> bool:
+    def quota_available(self, source: str, limits: SourceLimits, now: datetime | None = None) -> bool:
         now = now or datetime.now(timezone.utc)
         if limits.daily <= 0 or limits.monthly <= 0:
             return False
@@ -170,9 +185,27 @@ class PostgresStore:
                 day_count, month_count = cur.fetchone()
                 if day_count >= limits.daily or month_count >= limits.monthly:
                     return False
+        return True
+
+    def record_quota_usage(self, source: str, now: datetime | None = None) -> None:
+        now = now or datetime.now(timezone.utc)
+        with self._psycopg.connect(self.database_url) as conn:
+            with conn.cursor() as cur:
                 cur.execute("INSERT INTO quota_usage (source, used_at) VALUES (%s, %s)", (source, now))
             conn.commit()
+
+    def try_consume_quota(self, source: str, limits: SourceLimits, now: datetime | None = None) -> bool:
+        now = now or datetime.now(timezone.utc)
+        if not self.quota_available(source, limits, now=now):
+            return False
+        self.record_quota_usage(source, now=now)
         return True
+
+    def reset_quota(self, source: str) -> None:
+        with self._psycopg.connect(self.database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM quota_usage WHERE source = %s", (source,))
+            conn.commit()
 
     def save_quotes(self, quotes: Iterable[Quote]) -> None:
         rows = list(quotes)

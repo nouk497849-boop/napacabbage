@@ -16,6 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--init-db", action="store_true", help="Create database tables and exit.")
     parser.add_argument("--list-sources", action="store_true", help="Print enabled/disabled source adapters and exit.")
     parser.add_argument("--test-telegram", action="store_true", help="Send a Telegram test message and exit.")
+    parser.add_argument("--reset-quota", metavar="SOURCE", help="Delete local quota counters for a source and exit.")
     args = parser.parse_args(argv)
 
     config = load_config()
@@ -34,6 +35,13 @@ def main(argv: list[str] | None = None) -> int:
             f"時間：{datetime.now(timezone.utc).isoformat(timespec='seconds')}"
         )
         print("Telegram test message sent.")
+        return 0
+
+    if args.reset_quota:
+        store = build_store(config.database_url)
+        store.setup()
+        store.reset_quota(args.reset_quota)
+        print(f"Quota counters reset for {args.reset_quota}.")
         return 0
 
     if args.init_db:

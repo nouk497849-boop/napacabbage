@@ -17,6 +17,11 @@ on:
         required: true
         type: boolean
         default: false
+      reset_searchapi_quota:
+        description: "Clear local SearchApi quota counters before running"
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   scan:
@@ -65,12 +70,15 @@ jobs:
           AMADEUS_DAILY_LIMIT: ${{ vars.AMADEUS_DAILY_LIMIT || '80' }}
           AMADEUS_MONTHLY_LIMIT: ${{ vars.AMADEUS_MONTHLY_LIMIT || '1000' }}
           SEARCHAPI_DAILY_LIMIT: ${{ vars.SEARCHAPI_DAILY_LIMIT || '3' }}
-          SEARCHAPI_MONTHLY_LIMIT: ${{ vars.SEARCHAPI_MONTHLY_LIMIT || '100' }}
+          SEARCHAPI_MONTHLY_LIMIT: ${{ vars.SEARCHAPI_MONTHLY_LIMIT || '250' }}
           KIWI_DAILY_LIMIT: ${{ vars.KIWI_DAILY_LIMIT || '60' }}
           KIWI_MONTHLY_LIMIT: ${{ vars.KIWI_MONTHLY_LIMIT || '1000' }}
           SKYSCANNER_DAILY_LIMIT: ${{ vars.SKYSCANNER_DAILY_LIMIT || '0' }}
           SKYSCANNER_MONTHLY_LIMIT: ${{ vars.SKYSCANNER_MONTHLY_LIMIT || '0' }}
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.reset_searchapi_quota }}" = "true" ]; then
+            python -m flight_deals_bot --reset-quota searchapi
+          fi
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.test_telegram }}" = "true" ]; then
             python -m flight_deals_bot --test-telegram
             exit 0

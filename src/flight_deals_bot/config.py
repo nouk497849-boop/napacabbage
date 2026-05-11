@@ -147,7 +147,7 @@ def load_config(env_file: str | None = ".env") -> AppConfig:
     source_limits = {
         "travelpayouts": SourceLimits(_int("TRAVELPAYOUTS_DAILY_LIMIT", 240), _int("TRAVELPAYOUTS_MONTHLY_LIMIT", 3000)),
         "amadeus": SourceLimits(_int("AMADEUS_DAILY_LIMIT", 80), _int("AMADEUS_MONTHLY_LIMIT", 1000)),
-        "searchapi": SourceLimits(_int("SEARCHAPI_DAILY_LIMIT", 3), _int("SEARCHAPI_MONTHLY_LIMIT", 100)),
+        "searchapi": SourceLimits(_int("SEARCHAPI_DAILY_LIMIT", 3), _int("SEARCHAPI_MONTHLY_LIMIT", 250)),
         "kiwi": SourceLimits(_int("KIWI_DAILY_LIMIT", 60), _int("KIWI_MONTHLY_LIMIT", 1000)),
         "skyscanner": SourceLimits(_int("SKYSCANNER_DAILY_LIMIT", 0), _int("SKYSCANNER_MONTHLY_LIMIT", 0)),
     }
