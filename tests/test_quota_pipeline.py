@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -11,6 +12,7 @@ from flight_deals_bot.http import HttpError
 from flight_deals_bot.models import Cabin, Quote, SourceLimits
 from flight_deals_bot.pipeline import run_pipeline, select_summary_candidates
 from flight_deals_bot.sources.base import BaseAdapter, SourceContext
+from flight_deals_bot.sources.searchapi import SearchApiAdapter
 from flight_deals_bot.storage import InMemoryStore
 
 
@@ -52,6 +54,34 @@ def test_quota_reset_clears_local_usage() -> None:
     store.reset_quota("searchapi")
 
     assert store.try_consume_quota("searchapi", limits) is True
+
+
+def test_searchapi_discovery_keeps_prior_quotes_when_one_calendar_request_times_out() -> None:
+    config = _config()
+    config = replace(
+        config,
+        search=replace(
+            config.search,
+            origins=("TPE",),
+            cabins=(Cabin.ECONOMY,),
+            stay_lengths=(7,),
+            searchapi_explore_limit=0,
+            searchapi_calendar_limit=2,
+            searchapi_calendar_destinations=("NRT", "LAX"),
+        ),
+        api=replace(config.api, searchapi_key="key"),
+        source_limits={"searchapi": SourceLimits(daily=10, monthly=10)},
+    )
+    store = InMemoryStore()
+    ctx = SourceContext(config=config, http=FlakySearchApiHttp(), store=store)
+
+    quotes = SearchApiAdapter().discover(ctx)
+
+    assert len(quotes) == 1
+    assert quotes[0].destination == "NRT"
+    assert ctx.provider_request_count("searchapi") == 2
+    assert len(store.quota_usage["searchapi"]) == 1
+    assert any("skipped" in note for note in ctx.diagnostics["searchapi"])
 
 
 def test_pipeline_dry_run_scores_and_formats_alert() -> None:
@@ -145,6 +175,23 @@ class FailingHttp:
 class SuccessHttp:
     def get_json(self, url, params=None, headers=None):  # noqa: ANN001
         return {"ok": True}
+
+
+class FlakySearchApiHttp:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def get_json(self, url, params=None, headers=None):  # noqa: ANN001
+        self.calls += 1
+        if self.calls == 2:
+            raise HttpError(0, url, "timeout: The read operation timed out")
+        outbound = params["outbound_date"]
+        return_date = params["return_date"]
+        return {
+            "search_metadata": {"google_url": "https://www.google.com/travel/flights/search"},
+            "search_parameters": {"currency": "TWD"},
+            "calendar": [{"departure": outbound, "return": return_date, "price": 5000}],
+        }
 
 
 def _config() -> AppConfig:

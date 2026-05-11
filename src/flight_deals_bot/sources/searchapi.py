@@ -7,6 +7,7 @@ from statistics import median
 from ..airports import airport_continent_key
 from ..config import AppConfig
 from ..dates import parse_date, parse_datetime
+from ..http import HttpError
 from ..models import Cabin, Quote, Segment
 from .base import BaseAdapter, SourceContext, safe_decimal
 
@@ -50,9 +51,9 @@ class SearchApiAdapter(BaseAdapter):
                     ctx.note(self.name, f"SearchApi Explore attempted {attempts} request(s), sent {sent}, parsed {len(quotes)} candidate(s)")
                     return quotes
                 attempts += 1
-                payload = ctx.get_json(
-                    self.name,
-                    self.endpoint,
+                payload = self._get_json_or_note(
+                    ctx,
+                    label=f"Explore {origin} {cabin.value}",
                     params={
                         "api_key": key,
                         "engine": "google_travel_explore",
@@ -111,9 +112,9 @@ class SearchApiAdapter(BaseAdapter):
             return_start = outbound_start + timedelta(days=min_stay)
             return_end = outbound_end + timedelta(days=max_stay)
             attempts += 1
-            payload = ctx.get_json(
-                self.name,
-                self.endpoint,
+            payload = self._get_json_or_note(
+                ctx,
+                label=f"Calendar {origin}-{destination} {cabin.value}",
                 params={
                     "api_key": key,
                     "engine": "google_flights_calendar",
@@ -190,9 +191,9 @@ class SearchApiAdapter(BaseAdapter):
             if signature in seen:
                 continue
             seen.add(signature)
-            payload = ctx.get_json(
-                self.name,
-                self.endpoint,
+            payload = self._get_json_or_note(
+                ctx,
+                label=f"Verify {candidate.origin}-{candidate.destination} {candidate.cabin.value}",
                 params={
                     "api_key": key,
                     "engine": "google_flights",
@@ -211,6 +212,15 @@ class SearchApiAdapter(BaseAdapter):
             if payload:
                 quotes.extend(self.parse_flights(payload, fallback=candidate, currency=ctx.config.search.currency))
         return quotes
+
+    def _get_json_or_note(self, ctx: SourceContext, label: str, params: dict) -> dict | None:
+        try:
+            return ctx.get_json(self.name, self.endpoint, params=params)
+        except HttpError as exc:
+            if _is_transient_http_error(exc):
+                ctx.note(self.name, f"{label} skipped: {_short_http_error(exc)}")
+                return None
+            raise
 
     def parse_flights(self, payload: dict, fallback: Quote, currency: str) -> list[Quote]:
         results = []
@@ -546,6 +556,18 @@ def _first_public_booking_option_url(payload: dict) -> str | None:
             if url:
                 return url
     return None
+
+
+def _is_transient_http_error(exc: HttpError) -> bool:
+    return exc.status in {0, 408, 429, 500, 502, 503, 504}
+
+
+def _short_http_error(exc: HttpError) -> str:
+    if exc.status == 0:
+        return exc.body[:120] or "network timeout"
+    if exc.status == 429:
+        return "rate limited by provider"
+    return f"HTTP {exc.status}: {exc.body[:120]}"
 
 
 def _int_or_none(value: object) -> int | None:

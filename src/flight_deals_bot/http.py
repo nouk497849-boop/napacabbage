@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -19,7 +20,7 @@ class HttpError(RuntimeError):
 
 @dataclass
 class JsonHttpClient:
-    timeout_seconds: int = 30
+    timeout_seconds: int = 60
     user_agent: str = "taiwan-flight-deals-bot/0.1"
 
     def get_json(
@@ -81,3 +82,5 @@ class JsonHttpClient:
             raise HttpError(exc.code, url, body_bytes.decode("utf-8", errors="replace")) from exc
         except urllib.error.URLError as exc:
             raise HttpError(0, url, str(exc)) from exc
+        except (TimeoutError, socket.timeout) as exc:
+            raise HttpError(0, url, f"timeout: {exc}") from exc
