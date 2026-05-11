@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 
 from flight_deals_bot.models import Cabin, Quote
-from flight_deals_bot.notifier import TelegramNotifier, format_deal_message, format_no_deals_message
+from flight_deals_bot.notifier import TelegramNotifier, format_deal_message, format_no_deals_message, quote_link
 
 
 class FakeHttp:
@@ -60,6 +60,7 @@ def test_no_deals_message_includes_counts() -> None:
     assert "Taiwan" in message
     assert "Japan" in message
     assert "TWD 32,000" in message
+    assert "約原價" in message
     assert '<a href="' in message
 
 
@@ -87,5 +88,24 @@ def test_deal_message_includes_route_country_and_fallback_link() -> None:
 
     assert "Taiwan Taoyuan International Airport" in message
     assert "Japan" in message
+    assert "目前約為原價 58%" in message
     assert "查看票價 / 搜尋此航線" in message
-    assert "https://www.google.com/search?" in message
+    assert "https://www.google.com/travel/flights/search?" in message
+
+
+def test_quote_link_rejects_searchapi_json_urls() -> None:
+    quote = Quote(
+        source="searchapi",
+        origin="TPE",
+        destination="HND",
+        departure_date=date(2026, 7, 15),
+        return_date=date(2026, 7, 18),
+        cabin=Cabin.FIRST,
+        price=Decimal("64046"),
+        booking_url="https://www.searchapi.io/api/v1/search?engine=google_flights",
+    )
+
+    link = quote_link(quote)
+
+    assert link.startswith("https://www.google.com/travel/flights/search?")
+    assert "searchapi.io" not in link

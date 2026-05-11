@@ -218,7 +218,7 @@ class SearchApiAdapter(BaseAdapter):
             if isinstance(value, list):
                 results.extend(value)
         metadata = payload.get("search_metadata") or {}
-        booking_url = metadata.get("google_url") or metadata.get("html_url") or metadata.get("request_url")
+        booking_url = _first_public_booking_option_url(payload) or _public_url(metadata.get("google_url"))
         baseline_hint = _price_insight_hint(payload.get("price_insights") or {})
         quotes: list[Quote] = []
         for item in results:
@@ -244,7 +244,7 @@ class SearchApiAdapter(BaseAdapter):
                     currency=currency,
                     airline=airline,
                     stops=_int_or_none(stops),
-                    booking_url=item.get("booking_url") or booking_url,
+                    booking_url=_public_url(item.get("booking_url")) or booking_url,
                     segments=tuple(segments),
                     raw=item,
                     verified=True,
@@ -263,7 +263,7 @@ class SearchApiAdapter(BaseAdapter):
         stay_lengths: tuple[int, ...],
     ) -> list[Quote]:
         metadata = payload.get("search_metadata") or {}
-        booking_url = metadata.get("google_url") or metadata.get("html_url") or metadata.get("request_url")
+        booking_url = _public_url(metadata.get("google_url"))
         search_parameters = payload.get("search_parameters") or {}
         result_currency = str(search_parameters.get("currency") or currency).upper()
         allowed_stays = set(stay_lengths)
@@ -310,7 +310,7 @@ class SearchApiAdapter(BaseAdapter):
 
     def parse_explore(self, payload: dict, origin: str, cabin: Cabin, currency: str) -> list[Quote]:
         metadata = payload.get("search_metadata") or {}
-        booking_url = metadata.get("html_url") or metadata.get("request_url")
+        booking_url = _public_url(metadata.get("google_url"))
         search_parameters = payload.get("search_parameters") or {}
         result_currency = str(search_parameters.get("currency") or currency).upper()
         quotes: list[Quote] = []
@@ -501,6 +501,37 @@ def _weighted_origins(origins: tuple[str, ...]) -> tuple[str, ...]:
     weighted = [origin for origin in preferred if origin in origin_set]
     weighted.extend(origin for origin in origins if origin not in weighted)
     return tuple(weighted or origins)
+
+
+def _public_url(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    url = value.strip()
+    if not url.startswith(("https://", "http://")):
+        return None
+    blocked_fragments = ("searchapi.io", "/api/v1/search", "google.com/travel/clk/f")
+    if any(fragment in url for fragment in blocked_fragments):
+        return None
+    return url
+
+
+def _first_public_booking_option_url(payload: dict) -> str | None:
+    options = payload.get("booking_options")
+    if not isinstance(options, list):
+        return None
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        for candidate in (option, option.get("departure"), option.get("arrival")):
+            if not isinstance(candidate, dict):
+                continue
+            request = candidate.get("booking_request")
+            if not isinstance(request, dict):
+                continue
+            url = _public_url(request.get("url"))
+            if url:
+                return url
+    return None
 
 
 def _int_or_none(value: object) -> int | None:

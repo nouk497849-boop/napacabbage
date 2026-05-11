@@ -103,7 +103,7 @@ def test_searchapi_parser_uses_price_insight_hint() -> None:
         price=Decimal("6000"),
     )
     payload = {
-        "search_metadata": {"html_url": "https://example.test/search"},
+        "search_metadata": {"google_url": "https://www.google.com/travel/flights/search"},
         "price_insights": {"typical_price_range": [10000, 12000]},
         "best_flights": [
             {
@@ -127,12 +127,12 @@ def test_searchapi_parser_uses_price_insight_hint() -> None:
     assert len(quotes) == 1
     assert quotes[0].price == Decimal("7000")
     assert quotes[0].baseline_price_hint == Decimal("11000")
-    assert quotes[0].booking_url == "https://example.test/search"
+    assert quotes[0].booking_url == "https://www.google.com/travel/flights/search"
 
 
 def test_searchapi_explore_parser_creates_discovery_candidates() -> None:
     payload = {
-        "search_metadata": {"html_url": "https://example.test/explore"},
+        "search_metadata": {"google_url": "https://www.google.com/travel/explore"},
         "search_parameters": {"currency": "TWD"},
         "destinations": [
             {
@@ -159,6 +159,30 @@ def test_searchapi_explore_parser_creates_discovery_candidates() -> None:
     assert quotes[0].destination == "NRT"
     assert quotes[0].cabin == Cabin.BUSINESS
     assert quotes[0].verified is False
+
+
+def test_searchapi_parser_does_not_use_searchapi_json_urls_as_booking_links() -> None:
+    fallback = Quote(
+        source="travelpayouts",
+        origin="TPE",
+        destination="SIN",
+        departure_date=date(2026, 9, 1),
+        return_date=date(2026, 9, 8),
+        cabin=Cabin.ECONOMY,
+        price=Decimal("6000"),
+    )
+    payload = {
+        "search_metadata": {
+            "html_url": "https://www.searchapi.io/api/v1/search?engine=google_flights",
+            "request_url": "https://www.searchapi.io/api/v1/search?engine=google_flights",
+        },
+        "best_flights": [{"price": "7,000", "booking_url": "https://www.google.com/travel/clk/f"}],
+    }
+
+    quotes = SearchApiAdapter().parse_flights(payload, fallback=fallback, currency="TWD")
+
+    assert len(quotes) == 1
+    assert quotes[0].booking_url is None
 
 
 def test_searchapi_calendar_parser_filters_stays_and_sets_baseline_hint() -> None:

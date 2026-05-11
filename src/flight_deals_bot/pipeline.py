@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Iterable, TextIO
 
+from .airports import airport_country_code
 from .config import AppConfig
 from .http import HttpError, JsonHttpClient
 from .models import Cabin, DealScore, Quote
@@ -176,22 +177,34 @@ def select_summary_candidates(quotes: Iterable[Quote], limit: int) -> list[Quote
         Cabin.PREMIUM_ECONOMY: 2,
         Cabin.ECONOMY: 3,
     }
-    unique: dict[tuple[str, str, str, str, Cabin], Quote] = {}
+    unique: dict[tuple[str, Cabin], Quote] = {}
     for quote in quotes:
-        key = (
-            quote.origin,
-            quote.destination,
-            quote.departure_date.isoformat(),
-            quote.return_date.isoformat() if quote.return_date else "",
-            quote.cabin,
-        )
+        key = (quote.destination, quote.cabin)
         existing = unique.get(key)
         if existing is None:
             unique[key] = quote
             continue
-        if (quote.verified and not existing.verified) or quote.price < existing.price:
+        if quote.price < existing.price or (quote.price == existing.price and quote.verified and not existing.verified):
             unique[key] = quote
-    return sorted(unique.values(), key=lambda q: (cabin_rank[q.cabin], q.price))[:limit]
+    buckets: dict[str, list[Quote]] = {}
+    for quote in unique.values():
+        bucket = airport_country_code(quote.destination) or quote.destination
+        buckets.setdefault(bucket, []).append(quote)
+    for bucket_quotes in buckets.values():
+        bucket_quotes.sort(key=lambda q: (cabin_rank[q.cabin], q.price))
+
+    ordered_buckets = sorted(buckets.values(), key=lambda items: (cabin_rank[items[0].cabin], items[0].price))
+    selected: list[Quote] = []
+    while ordered_buckets and len(selected) < limit:
+        next_round: list[list[Quote]] = []
+        for bucket_quotes in ordered_buckets:
+            if len(selected) >= limit:
+                break
+            selected.append(bucket_quotes.pop(0))
+            if bucket_quotes:
+                next_round.append(bucket_quotes)
+        ordered_buckets = sorted(next_round, key=lambda items: (cabin_rank[items[0].cabin], items[0].price))
+    return selected
 
 
 def score_quotes(store: Store, quotes: Iterable[Quote], require_verified: bool) -> list[DealScore]:

@@ -8,7 +8,7 @@ from decimal import Decimal
 from .airports import airport_label
 from .http import JsonHttpClient
 from .models import DealScore, Quote
-from .scoring import as_percent
+from .scoring import as_percent, as_price_ratio, display_reference_price
 
 
 @dataclass
@@ -51,7 +51,9 @@ def format_deal_message(score: DealScore) -> str:
         f"航線：{html.escape(route)}",
         f"艙等：{html.escape(cabin)}",
         f"價格：{html.escape(format_money(quote.price, quote.currency))}",
-        f"基準：{html.escape(format_money(score.baseline.price, quote.currency))}，低 {html.escape(as_percent(score.discount))}",
+        f"原價/基準：{html.escape(format_money(score.baseline.price, quote.currency))}，"
+        f"目前約為原價 {html.escape(as_price_ratio(quote.price, score.baseline.price))}，"
+        f"低 {html.escape(as_percent(score.discount))}",
         f"日期：{quote.departure_date.isoformat()} -> {quote.return_date.isoformat() if quote.return_date else 'one-way'}"
         + (f"（{quote.stay_nights} 晚）" if quote.stay_nights is not None else ""),
         f"來源：{html.escape(quote.source)}" + ("（已驗價）" if quote.verified else "（快取/候選）"),
@@ -117,25 +119,39 @@ def format_candidate_line(index: int, quote: Quote) -> str:
     status = "已驗價" if quote.verified else "候選"
     stops = f", 轉機 {quote.stops} 次" if quote.stops is not None else ""
     airline = f", {html.escape(quote.airline)}" if quote.airline else ""
+    reference = display_reference_price(quote)
+    price_ratio = f", 約原價 {as_price_ratio(quote.price, reference)}" if reference else ""
     route = format_route(quote)
     link = quote_link(quote)
     return (
         f'{index}. <a href="{html.escape(link)}">{html.escape(route)}</a> '
         f"{quote.departure_date.isoformat()} -> {return_date}{stay}, "
-        f"{html.escape(cabin)}, {html.escape(format_money(quote.price, quote.currency))}, "
+        f"{html.escape(cabin)}, {html.escape(format_money(quote.price, quote.currency))}"
+        f"{html.escape(price_ratio)}, "
         f"{html.escape(quote.source)}（{status}）{airline}{stops}"
     )
 
 
 def quote_link(quote: Quote) -> str:
-    if quote.booking_url:
+    if quote.booking_url and _is_public_booking_url(quote.booking_url):
         return quote.booking_url
+    return google_flights_search_link(quote)
+
+
+def google_flights_search_link(quote: Quote) -> str:
     params = {
         "q": (
-            f"Google Flights {quote.origin} to {quote.destination} "
+            f"{quote.origin} to {quote.destination} "
             f"{quote.departure_date.isoformat()} "
             f"{quote.return_date.isoformat() if quote.return_date else ''} "
             f"{quote.cabin.value.replace('_', ' ')}"
-        )
+        ),
+        "hl": "zh-TW",
+        "curr": quote.currency,
     }
-    return "https://www.google.com/search?" + urllib.parse.urlencode(params)
+    return "https://www.google.com/travel/flights/search?" + urllib.parse.urlencode(params)
+
+
+def _is_public_booking_url(url: str) -> bool:
+    blocked_fragments = ("searchapi.io", "/api/v1/search", "google.com/travel/clk/f")
+    return url.startswith(("https://", "http://")) and not any(fragment in url for fragment in blocked_fragments)

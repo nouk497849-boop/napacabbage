@@ -33,6 +33,14 @@ def country_name(alpha_2: str | None) -> str | None:
     return country.name if country else alpha_2
 
 
+def airport_country_code(iata_code: str) -> str | None:
+    airport = _airport_data().get(iata_code.upper())
+    if not airport:
+        return None
+    country = airport.get("country")
+    return str(country).upper() if country else None
+
+
 def airport_label(iata_code: str) -> str:
     code = iata_code.upper()
     airport = _airport_data().get(code)

@@ -9,7 +9,7 @@ import pytest
 from flight_deals_bot.config import ApiConfig, AppConfig, SearchConfig
 from flight_deals_bot.http import HttpError
 from flight_deals_bot.models import Cabin, Quote, SourceLimits
-from flight_deals_bot.pipeline import run_pipeline
+from flight_deals_bot.pipeline import run_pipeline, select_summary_candidates
 from flight_deals_bot.sources.base import BaseAdapter, SourceContext
 from flight_deals_bot.storage import InMemoryStore
 
@@ -75,6 +75,25 @@ def test_pipeline_dry_run_scores_and_formats_alert() -> None:
     assert "Japan" in result.messages[0]
 
 
+def test_summary_candidates_keep_one_lowest_per_destination_cabin_and_rotate_countries() -> None:
+    quotes = [
+        _summary_quote("HND", Cabin.FIRST, "70000"),
+        _summary_quote("HND", Cabin.FIRST, "64000"),
+        _summary_quote("KIX", Cabin.FIRST, "65000"),
+        _summary_quote("ICN", Cabin.BUSINESS, "30000"),
+        _summary_quote("HKG", Cabin.BUSINESS, "28000"),
+        _summary_quote("LAX", Cabin.BUSINESS, "78000"),
+    ]
+
+    selected = select_summary_candidates(quotes, limit=4)
+
+    assert len(selected) == 4
+    assert selected[0].destination == "HND"
+    assert selected[0].price == Decimal("64000")
+    assert len([quote for quote in selected if quote.destination == "HND" and quote.cabin == Cabin.FIRST]) == 1
+    assert {quote.destination for quote in selected} >= {"HND", "ICN", "HKG"}
+
+
 class FixtureAdapter(BaseAdapter):
     name = "fixture"
 
@@ -104,6 +123,18 @@ class FixtureAdapter(BaseAdapter):
                 airline="B",
             ),
         ]
+
+
+def _summary_quote(destination: str, cabin: Cabin, price: str) -> Quote:
+    return Quote(
+        source="fixture",
+        origin="TPE",
+        destination=destination,
+        departure_date=date(2026, 7, 15),
+        return_date=date(2026, 7, 22),
+        cabin=cabin,
+        price=Decimal(price),
+    )
 
 
 class FailingHttp:

@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 
 from flight_deals_bot.models import Baseline, Cabin, Quote, Segment
-from flight_deals_bot.scoring import find_baseline, score_quote
+from flight_deals_bot.scoring import as_price_ratio, find_baseline, score_quote
 from flight_deals_bot.storage import InMemoryStore
 
 
@@ -63,3 +63,25 @@ def test_premium_quote_rejects_when_longest_segment_is_not_target_cabin() -> Non
     baseline = Baseline(price=Decimal("120000"), sample_size=5, source="fixture")
 
     assert score_quote(deal, baseline) is None
+
+
+def test_absolute_low_price_rule_scores_regional_first_without_history() -> None:
+    deal = Quote(
+        source="fixture",
+        origin="TPE",
+        destination="HND",
+        departure_date=date(2026, 7, 15),
+        return_date=date(2026, 7, 18),
+        cabin=Cabin.FIRST,
+        price=Decimal("64046"),
+    )
+    store = InMemoryStore()
+
+    baseline = find_baseline(store, deal)
+    assert baseline is not None
+    scored = score_quote(deal, baseline)
+
+    assert baseline.source == "absolute:northeast_asia"
+    assert baseline.price == Decimal("150000")
+    assert scored is not None
+    assert as_price_ratio(scored.quote.price, scored.baseline.price) == "43%"
