@@ -111,6 +111,7 @@ def run_pipeline(
             verified_count=len(verified),
             scored_count=0,
             enabled_sources=[adapter.name for adapter in enabled_adapters],
+            candidates=select_summary_candidates(discovered + verified, config.search.no_deal_candidate_limit),
             source_errors=source_errors,
         )
         messages.append(no_deals_message)
@@ -156,6 +157,33 @@ def select_verification_candidates(quotes: Iterable[Quote], limit: int) -> list[
         )
         existing = unique.get(key)
         if existing is None or quote.price < existing.price:
+            unique[key] = quote
+    return sorted(unique.values(), key=lambda q: (cabin_rank[q.cabin], q.price))[:limit]
+
+
+def select_summary_candidates(quotes: Iterable[Quote], limit: int) -> list[Quote]:
+    if limit <= 0:
+        return []
+    cabin_rank = {
+        Cabin.FIRST: 0,
+        Cabin.BUSINESS: 1,
+        Cabin.PREMIUM_ECONOMY: 2,
+        Cabin.ECONOMY: 3,
+    }
+    unique: dict[tuple[str, str, str, str, Cabin], Quote] = {}
+    for quote in quotes:
+        key = (
+            quote.origin,
+            quote.destination,
+            quote.departure_date.isoformat(),
+            quote.return_date.isoformat() if quote.return_date else "",
+            quote.cabin,
+        )
+        existing = unique.get(key)
+        if existing is None:
+            unique[key] = quote
+            continue
+        if (quote.verified and not existing.verified) or quote.price < existing.price:
             unique[key] = quote
     return sorted(unique.values(), key=lambda q: (cabin_rank[q.cabin], q.price))[:limit]
 

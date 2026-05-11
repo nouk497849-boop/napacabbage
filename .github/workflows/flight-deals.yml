@@ -54,6 +54,7 @@ jobs:
           CABINS: ${{ vars.CABINS || 'economy,business,first' }}
           REQUIRE_VERIFIED_ALERTS: ${{ vars.REQUIRE_VERIFIED_ALERTS || 'false' }}
           NOTIFY_NO_DEALS: ${{ vars.NOTIFY_NO_DEALS || 'true' }}
+          NO_DEAL_CANDIDATE_LIMIT: ${{ vars.NO_DEAL_CANDIDATE_LIMIT || '8' }}
           TRAVELPAYOUTS_DAILY_LIMIT: ${{ vars.TRAVELPAYOUTS_DAILY_LIMIT || '240' }}
           TRAVELPAYOUTS_MONTHLY_LIMIT: ${{ vars.TRAVELPAYOUTS_MONTHLY_LIMIT || '3000' }}
           AMADEUS_DAILY_LIMIT: ${{ vars.AMADEUS_DAILY_LIMIT || '80' }}

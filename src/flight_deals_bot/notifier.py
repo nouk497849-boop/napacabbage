@@ -78,6 +78,7 @@ def format_no_deals_message(
     verified_count: int,
     scored_count: int,
     enabled_sources: list[str],
+    candidates: list[Quote] | None = None,
     source_errors: dict[str, str] | None = None,
 ) -> str:
     lines = [
@@ -88,7 +89,27 @@ def format_no_deals_message(
         f"符合門檻：{scored_count}",
         "資料源：" + html.escape(", ".join(enabled_sources) if enabled_sources else "none"),
     ]
+    if candidates:
+        lines.append("")
+        lines.append("<b>候選票前幾筆</b>")
+        for index, quote in enumerate(candidates, start=1):
+            lines.append(format_candidate_line(index, quote))
     if source_errors:
         compact = "; ".join(f"{key}: {value}" for key, value in source_errors.items())
         lines.append("錯誤：" + html.escape(compact[:500]))
     return "\n".join(lines)
+
+
+def format_candidate_line(index: int, quote: Quote) -> str:
+    cabin = quote.cabin.value.replace("_", " ").title()
+    return_date = quote.return_date.isoformat() if quote.return_date else "one-way"
+    stay = f", {quote.stay_nights} 晚" if quote.stay_nights is not None else ""
+    status = "已驗價" if quote.verified else "候選"
+    stops = f", 轉機 {quote.stops} 次" if quote.stops is not None else ""
+    airline = f", {html.escape(quote.airline)}" if quote.airline else ""
+    return (
+        f"{index}. {html.escape(quote.origin)}-{html.escape(quote.destination)} "
+        f"{quote.departure_date.isoformat()} -> {return_date}{stay}, "
+        f"{html.escape(cabin)}, {html.escape(format_money(quote.price, quote.currency))}, "
+        f"{html.escape(quote.source)}（{status}）{airline}{stops}"
+    )
