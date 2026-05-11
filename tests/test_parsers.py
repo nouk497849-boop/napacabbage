@@ -159,3 +159,32 @@ def test_searchapi_explore_parser_creates_discovery_candidates() -> None:
     assert quotes[0].destination == "NRT"
     assert quotes[0].cabin == Cabin.BUSINESS
     assert quotes[0].verified is False
+
+
+def test_searchapi_calendar_parser_filters_stays_and_sets_baseline_hint() -> None:
+    payload = {
+        "search_metadata": {"google_url": "https://example.test/calendar"},
+        "search_parameters": {"currency": "TWD"},
+        "calendar": [
+            {"departure": "2026-10-01", "return": "2026-10-08", "price": 7000, "is_lowest_price": True},
+            {"departure": "2026-10-01", "return": "2026-10-09", "price": 9000},
+            {"departure": "2026-10-02", "return": "2026-10-09", "price": 11000},
+            {"departure": "2026-10-03", "return": "2026-10-10", "has_no_flights": True},
+        ],
+    }
+
+    quotes = SearchApiAdapter().parse_calendar(
+        payload,
+        origin="TPE",
+        destination="NRT",
+        cabin=Cabin.ECONOMY,
+        currency="TWD",
+        stay_lengths=(7,),
+    )
+
+    assert len(quotes) == 2
+    assert quotes[0].price == Decimal("7000")
+    assert quotes[0].return_date == date(2026, 10, 8)
+    assert quotes[0].baseline_price_hint == Decimal("9000")
+    assert quotes[0].booking_url == "https://example.test/calendar"
+    assert quotes[0].verified is False

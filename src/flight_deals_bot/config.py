@@ -39,6 +39,11 @@ class SearchConfig:
     cabins: tuple[Cabin, ...]
     top_verify_limit: int
     max_alerts_per_run: int
+    searchapi_explore_limit: int
+    searchapi_calendar_limit: int
+    searchapi_calendar_destinations: tuple[str, ...]
+    searchapi_calendar_outbound_window_days: int
+    searchapi_calendar_window_step_days: int
     require_verified_alerts: bool
     notify_no_deals: bool
     no_deal_candidate_limit: int
@@ -73,6 +78,41 @@ def load_config(env_file: str | None = ".env") -> AppConfig:
         load_env_file(Path(env_file))
     cabins = tuple(Cabin.parse(item) for item in _csv(os.getenv("CABINS"), ("economy", "business", "first")))
     stay_lengths = tuple(int(item) for item in _csv(os.getenv("STAY_LENGTHS"), ("3", "5", "7", "10", "14", "21")))
+    calendar_destinations = tuple(
+        code.upper()
+        for code in _csv(
+            os.getenv("SEARCHAPI_CALENDAR_DESTINATIONS"),
+            (
+                "NRT",
+                "HND",
+                "KIX",
+                "ICN",
+                "HKG",
+                "BKK",
+                "SIN",
+                "KUL",
+                "MNL",
+                "SGN",
+                "DAD",
+                "HAN",
+                "DPS",
+                "CGK",
+                "SYD",
+                "MEL",
+                "LAX",
+                "SFO",
+                "YVR",
+                "SEA",
+                "HNL",
+                "LHR",
+                "CDG",
+                "FRA",
+                "AMS",
+                "IST",
+                "DXB",
+            ),
+        )
+    )
     search = SearchConfig(
         origins=tuple(origin.upper() for origin in _csv(os.getenv("ORIGINS"), ("TPE", "TSA", "KHH", "RMQ", "TNN"))),
         currency=os.getenv("CURRENCY", "TWD").upper(),
@@ -83,6 +123,11 @@ def load_config(env_file: str | None = ".env") -> AppConfig:
         cabins=cabins,
         top_verify_limit=_int("TOP_VERIFY_LIMIT", 18),
         max_alerts_per_run=_int("MAX_ALERTS_PER_RUN", 8),
+        searchapi_explore_limit=_int("SEARCHAPI_EXPLORE_LIMIT", 3),
+        searchapi_calendar_limit=_int("SEARCHAPI_CALENDAR_LIMIT", 6),
+        searchapi_calendar_destinations=calendar_destinations,
+        searchapi_calendar_outbound_window_days=_int("SEARCHAPI_CALENDAR_OUTBOUND_WINDOW_DAYS", 7),
+        searchapi_calendar_window_step_days=_int("SEARCHAPI_CALENDAR_WINDOW_STEP_DAYS", 45),
         require_verified_alerts=_bool("REQUIRE_VERIFIED_ALERTS", False),
         notify_no_deals=_bool("NOTIFY_NO_DEALS", True),
         no_deal_candidate_limit=_int("NO_DEAL_CANDIDATE_LIMIT", 8),
