@@ -5,10 +5,26 @@ import urllib.parse
 from dataclasses import dataclass
 from decimal import Decimal
 
-from .airports import airport_continent_label, airport_label
+from .airlines import airline_label
+from .airports import airport_continent_label, airport_country_label, airport_label
 from .http import JsonHttpClient
-from .models import DealScore, Quote
+from .models import Cabin, DealScore, Quote, Segment
 from .scoring import as_percent, as_price_ratio, display_reference_price
+
+
+CABIN_LABELS = {
+    Cabin.ECONOMY: "經濟艙",
+    Cabin.PREMIUM_ECONOMY: "豪華經濟艙",
+    Cabin.BUSINESS: "商務艙",
+    Cabin.FIRST: "頭等艙",
+}
+
+TRIP_CLASS = {
+    Cabin.ECONOMY: 0,
+    Cabin.PREMIUM_ECONOMY: 0,
+    Cabin.BUSINESS: 1,
+    Cabin.FIRST: 2,
+}
 
 
 @dataclass
@@ -45,11 +61,14 @@ class TelegramNotifier:
 def format_deal_message(score: DealScore) -> str:
     quote = score.quote
     route = format_route(quote)
-    cabin = quote.cabin.value.replace("_", " ").title()
+    cabin = cabin_label(quote.cabin)
+    continent = airport_continent_label(quote.destination)
+    destination_country = airport_country_label(quote.destination) or "未知"
     lines = [
         f"<b>低價機票提醒</b>",
         f"航線：{html.escape(route)}",
-        f"分類：{html.escape(airport_continent_label(quote.destination))}",
+        f"目的地國家：{html.escape(destination_country)}",
+        f"洲別分類：{html.escape(continent)}",
         f"艙等：{html.escape(cabin)}",
         f"價格：{html.escape(format_money(quote.price, quote.currency))}",
         f"原價/基準：{html.escape(format_money(score.baseline.price, quote.currency))}，"
@@ -59,17 +78,22 @@ def format_deal_message(score: DealScore) -> str:
         + (f"（{quote.stay_nights} 晚）" if quote.stay_nights is not None else ""),
         f"來源：{html.escape(quote.source)}" + ("（已驗價）" if quote.verified else "（快取/候選）"),
     ]
-    if quote.airline:
-        lines.append(f"航司：{html.escape(quote.airline)}")
+    airline = format_airline_summary(quote)
+    lines.append(f"航空公司：{html.escape(airline or '資料源未提供')}")
+    flight_details = format_flight_details(quote)
+    if flight_details:
+        lines.extend(f"航班/機型：{html.escape(line)}" for line in flight_details)
+    elif not quote.verified:
+        lines.append("航班/機型：快取候選通常不提供，請點連結重新搜尋確認")
     if quote.stops is not None:
         lines.append(f"轉機：{quote.stops} 次")
     if quote.self_transfer:
         lines.append("注意：可能包含自轉機，請確認行李與保障條款")
     if quote.mixed_cabin:
-        lines.append(f"混艙：是，最長航段為 {quote.longest_segment_cabin.value.replace('_', ' ').title()}")
+        lines.append(f"混艙：是，最長航段為 {cabin_label(quote.longest_segment_cabin)}")
     if quote.notes:
-        lines.append("備註：" + html.escape("; ".join(quote.notes)))
-    lines.append(f"<a href=\"{html.escape(quote_link(quote))}\">查看票價 / 搜尋此航線</a>")
+        lines.append("備註：" + html.escape(format_notes(quote.notes)))
+    lines.append(f"<a href=\"{html.escape(quote_link(quote))}\">{html.escape(link_label(quote))}</a>")
     return "\n".join(lines)
 
 
@@ -118,23 +142,25 @@ def format_no_deals_message(
 
 
 def format_candidate_line(index: int, quote: Quote) -> str:
-    cabin = quote.cabin.value.replace("_", " ").title()
+    cabin = cabin_label(quote.cabin)
     return_date = quote.return_date.isoformat() if quote.return_date else "one-way"
     stay = f", {quote.stay_nights} 晚" if quote.stay_nights is not None else ""
     status = "已驗價" if quote.verified else "候選"
     stops = f", 轉機 {quote.stops} 次" if quote.stops is not None else ""
-    airline = f", {html.escape(quote.airline)}" if quote.airline else ""
+    airline = format_airline_summary(quote)
+    airline_text = f", {html.escape(airline)}" if airline else ""
     reference = display_reference_price(quote)
     price_ratio = f", 約原價 {as_price_ratio(quote.price, reference)}" if reference else ""
     continent = airport_continent_label(quote.destination)
+    country = airport_country_label(quote.destination) or "未知"
     route = format_route(quote)
     link = quote_link(quote)
     return (
         f'{index}. <a href="{html.escape(link)}">{html.escape(route)}</a> '
         f"{quote.departure_date.isoformat()} -> {return_date}{stay}, "
-        f"{html.escape(continent)}, {html.escape(cabin)}, {html.escape(format_money(quote.price, quote.currency))}"
+        f"{html.escape(continent)}・{html.escape(country)}, {html.escape(cabin)}, {html.escape(format_money(quote.price, quote.currency))}"
         f"{html.escape(price_ratio)}, "
-        f"{html.escape(quote.source)}（{status}）{airline}{stops}"
+        f"{html.escape(quote.source)}（{status}）{airline_text}{stops}"
     )
 
 
@@ -149,17 +175,29 @@ def group_candidates_by_continent(candidates: list[Quote]) -> list[tuple[str, li
 def quote_link(quote: Quote) -> str:
     if quote.booking_url and _is_public_booking_url(quote.booking_url):
         return quote.booking_url
-    return google_flights_search_link(quote)
+    return aviasales_search_link(quote)
+
+
+def aviasales_search_link(quote: Quote) -> str:
+    params = {
+        "origin_iata": quote.origin,
+        "destination_iata": quote.destination,
+        "depart_date": quote.departure_date.isoformat(),
+        "return_date": quote.return_date.isoformat() if quote.return_date else "",
+        "one_way": "false" if quote.return_date else "true",
+        "adults": 1,
+        "children": 0,
+        "infants": 0,
+        "trip_class": TRIP_CLASS.get(quote.cabin, 0),
+        "currency": quote.currency,
+        "locale": "zh",
+    }
+    return "https://search.aviasales.com/flights/?" + urllib.parse.urlencode(params)
 
 
 def google_flights_search_link(quote: Quote) -> str:
     params = {
-        "q": (
-            f"{quote.origin} to {quote.destination} "
-            f"{quote.departure_date.isoformat()} "
-            f"{quote.return_date.isoformat() if quote.return_date else ''} "
-            f"{quote.cabin.value.replace('_', ' ')}"
-        ),
+        "q": f"{quote.origin} to {quote.destination} {quote.departure_date.isoformat()} {quote.return_date.isoformat() if quote.return_date else ''} {quote.cabin.value.replace('_', ' ')}",
         "hl": "zh-TW",
         "curr": quote.currency,
     }
@@ -169,3 +207,82 @@ def google_flights_search_link(quote: Quote) -> str:
 def _is_public_booking_url(url: str) -> bool:
     blocked_fragments = ("searchapi.io", "/api/v1/search", "google.com/travel/clk/f")
     return url.startswith(("https://", "http://")) and not any(fragment in url for fragment in blocked_fragments)
+
+
+def cabin_label(cabin: Cabin) -> str:
+    return CABIN_LABELS.get(cabin, cabin.value.replace("_", " ").title())
+
+
+def format_airline_summary(quote: Quote) -> str | None:
+    if quote.airline:
+        return airline_label(quote.airline)
+    carriers = []
+    for segment in quote.segments:
+        if segment.marketing_carrier:
+            label = airline_label(segment.marketing_carrier)
+            if label and label not in carriers:
+                carriers.append(label)
+    return "、".join(carriers) if carriers else None
+
+
+def format_flight_details(quote: Quote) -> list[str]:
+    details = [_segment_detail(segment) for segment in quote.segments]
+    details = [detail for detail in details if detail]
+    if details:
+        return details[:4]
+    flight_number = quote.raw.get("flight_number")
+    if flight_number:
+        carrier = airline_label(quote.airline) or quote.airline or ""
+        return [f"{carrier} {flight_number}".strip()]
+    return []
+
+
+def _segment_detail(segment: Segment) -> str | None:
+    parts = [f"{segment.origin}->{segment.destination}"]
+    carrier = airline_label(segment.marketing_carrier)
+    flight_number = _flight_number(segment)
+    if carrier:
+        parts.append(carrier)
+    if flight_number:
+        parts.append(flight_number)
+    if segment.aircraft:
+        parts.append(f"機型 {segment.aircraft}")
+    if len(parts) == 1:
+        return None
+    return " ".join(str(part) for part in parts if part)
+
+
+def _flight_number(segment: Segment) -> str | None:
+    if not segment.flight_number:
+        return None
+    value = str(segment.flight_number).strip()
+    if not value:
+        return None
+    carrier = str(segment.marketing_carrier or "").strip().upper()
+    if carrier and not value.upper().startswith(carrier):
+        return f"{carrier}{value}"
+    return value
+
+
+def format_notes(notes: tuple[str, ...]) -> str:
+    return "；".join(_translate_note(note) for note in notes)
+
+
+def _translate_note(note: str) -> str:
+    translations = {
+        "Travelpayouts latest prices are cached and should be rechecked before booking.": "Travelpayouts 快取票價，實際票價與座位請點連結重新確認。",
+        "SearchApi Google Flights Calendar candidate; verify before booking.": "SearchApi Google Flights Calendar 候選票，訂票前請重新確認票價與座位。",
+        "Calendar marked this as a lowest-price date.": "Google Flights Calendar 標記這組日期為低價。",
+        "SearchApi explore is a broad Google Travel candidate; verify before booking.": "SearchApi Explore 廣域候選票，訂票前請重新確認票價與座位。",
+        "Amadeus inspiration prices are cached; live offers are used for verification.": "Amadeus 靈感票價為快取候選，會再用即時 offers 驗價。",
+        "Kiwi may include virtual interlining/self-transfer itineraries; confirm protection and baggage rules.": "Kiwi 可能包含自轉機或 virtual interlining，請確認行李、轉機保障與退改規則。",
+    }
+    return translations.get(note, note)
+
+
+def link_label(quote: Quote) -> str:
+    if quote.booking_url and _is_public_booking_url(quote.booking_url):
+        if "aviasales" in quote.booking_url:
+            return "查看 Aviasales 票價 / 搜尋此航線"
+        return "前往訂票或驗價頁"
+    return "查看 Aviasales 搜尋結果"

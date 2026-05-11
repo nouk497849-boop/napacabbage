@@ -58,11 +58,11 @@ Postgres：
 
 預設 `NOTIFY_NO_DEALS=true`，正式排程每次跑完即使沒有低價票，也會發一則「目前沒有找到符合低價門檻的機票」摘要。若覺得太吵，可在 GitHub Variables 設為 `false`。
 摘要會列出最多 8 筆候選票；可用 `NO_DEAL_CANDIDATE_LIMIT` 調整，例如 `5` 或 `10`。
-正式低價票與候選票都會顯示機場名稱、國家，並附上來源連結；若來源沒有連結，會退回 Google 搜尋連結。
+正式低價票與候選票都會顯示機場/城市名稱、中文國家與洲別，並附上來源連結；若來源沒有可公開的訂票連結，會退回 Aviasales 預填航線搜尋連結。
 
 ## Quota 與通知邏輯
 
-預設 quota 在 `.env.example`，例如 SearchApi 預設 `3/day`、`100/month`，用於驗證最有價值候選。設為 `0` 可停用某來源。
+預設 quota 在 `.env.example`，例如 SearchApi 預設 `30/day`、`250/month`，用於掃描日曆、驗證候選與少量補抓訂票連結。設為 `0` 可停用某來源。
 
 通知門檻：
 
@@ -88,6 +88,6 @@ Postgres：
 
 ## SearchApi-only 模式
 
-如果你目前只有 `SEARCHAPI_KEY`，機器人會用 SearchApi 的 Google Travel Explore 從台灣出發搜尋 anywhere 候選，再用 Google Flights API 對高分候選驗價。免費額度很小，預設 `SEARCHAPI_DAILY_LIMIT=3`，所以會優先掃 `TPE` 的商務艙、頭等艙、經濟艙；若要涵蓋更多出發機場，請提高 daily/monthly limit 或補上 Travelpayouts/Amadeus/Kiwi 作為探索來源。
+如果你目前只有 `SEARCHAPI_KEY`，機器人會用 SearchApi 的 Google Flights Calendar 掃描預設目的地，再用 Google Flights API 對高分候選驗價。免費額度很小，請用 `SEARCHAPI_CALENDAR_LIMIT` 控制每次日曆掃描數量；`SEARCHAPI_BOOKING_LINK_LIMIT` 會限制每次最多補抓幾筆 booking option 連結。
 
 `dry_run=true` 仍會打真實 API，也會記錄 quota usage，避免測試時不小心超出免費額度。若要在同一天多測幾次，可在 GitHub Actions Variables 新增或調高 `SEARCHAPI_DAILY_LIMIT`，例如 `6` 或 `9`，前提是你的 SearchApi 帳號額度足夠。

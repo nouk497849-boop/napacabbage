@@ -21,18 +21,22 @@ def test_travelpayouts_latest_parser_handles_business_quote() -> None:
                 "value": "18000",
                 "trip_class": 1,
                 "airline": "CI",
+                "flight_number": "12",
                 "number_of_changes": 0,
             }
         ],
     }
 
-    quotes = TravelpayoutsAdapter().parse_latest(payload, default_cabin=Cabin.BUSINESS, currency="TWD")
+    quotes = TravelpayoutsAdapter().parse_latest(payload, default_cabin=Cabin.BUSINESS, currency="TWD", marker="727111")
 
     assert len(quotes) == 1
     assert quotes[0].origin == "TPE"
     assert quotes[0].destination == "NRT"
     assert quotes[0].cabin == Cabin.BUSINESS
     assert quotes[0].price == Decimal("18000")
+    assert quotes[0].booking_url and "search.aviasales.com/flights/" in quotes[0].booking_url
+    assert "marker=727111" in quotes[0].booking_url
+    assert quotes[0].segments[0].flight_number == "12"
 
 
 def test_amadeus_offer_parser_preserves_mixed_cabin_longest_segment() -> None:
@@ -116,6 +120,7 @@ def test_searchapi_parser_uses_price_insight_hint() -> None:
                         "flight_number": "BR215",
                         "duration": 280,
                         "travel_class": "Economy",
+                        "airplane": "Airbus A321",
                     }
                 ],
             }
@@ -128,6 +133,7 @@ def test_searchapi_parser_uses_price_insight_hint() -> None:
     assert quotes[0].price == Decimal("7000")
     assert quotes[0].baseline_price_hint == Decimal("11000")
     assert quotes[0].booking_url == "https://www.google.com/travel/flights/search"
+    assert quotes[0].segments[0].aircraft == "Airbus A321"
 
 
 def test_searchapi_explore_parser_creates_discovery_candidates() -> None:

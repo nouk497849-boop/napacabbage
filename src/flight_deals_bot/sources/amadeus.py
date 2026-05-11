@@ -113,7 +113,7 @@ class AmadeusAdapter(BaseAdapter):
                     booking_url=links.get("flightOffers") or links.get("flightDates"),
                     raw=item,
                     verified=False,
-                    notes=("Amadeus inspiration prices are cached; live offers are used for verification.",),
+                    notes=("Amadeus 靈感票價為快取候選，會再用即時 offers 驗價。",),
                 )
             )
         return quotes
@@ -143,6 +143,7 @@ class AmadeusAdapter(BaseAdapter):
                             flight_number=segment.get("number"),
                             cabin=cabin,
                             duration_minutes=_parse_iso_duration(segment.get("duration")),
+                            aircraft=_aircraft(segment),
                         )
                     )
             airline = None
@@ -167,7 +168,7 @@ class AmadeusAdapter(BaseAdapter):
                     segments=tuple(segments),
                     raw=offer,
                     verified=True,
-                    notes=("Amadeus self-service does not include low-cost carriers, American, Delta, or British Airways.",),
+                    notes=("Amadeus Self-Service 覆蓋有限，可能不含部分廉航、美國航空、達美航空或英國航空。",),
                 )
             )
         return quotes
@@ -224,3 +225,11 @@ def _parse_iso_duration(value: object) -> int | None:
     hours = int(match.group("hours") or 0)
     minutes = int(match.group("minutes") or 0)
     return (days * 24 * 60) + (hours * 60) + minutes
+
+
+def _aircraft(segment: dict) -> str | None:
+    value = segment.get("aircraft")
+    if isinstance(value, dict):
+        code = value.get("code")
+        return str(code) if code else None
+    return str(value) if value else None

@@ -130,7 +130,7 @@ class KiwiAdapter(BaseAdapter):
                     segments=tuple(segments),
                     raw=item,
                     verified=True,
-                    notes=("Kiwi may include virtual interlining/self-transfer itineraries; confirm protection and baggage rules.",),
+                    notes=("Kiwi 可能包含自轉機或 virtual interlining，請確認行李、轉機保障與退改規則。",),
                 )
             )
         return quotes
@@ -153,6 +153,7 @@ def _segments(route: list[dict], fallback_cabin: Cabin) -> list[Segment]:
                 marketing_carrier=raw.get("airline"),
                 flight_number=raw.get("flight_no"),
                 cabin=cabin,
+                aircraft=raw.get("aircraft") or raw.get("vehicle_type"),
             )
         )
     return segments

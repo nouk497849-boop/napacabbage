@@ -44,6 +44,7 @@ class SearchConfig:
     searchapi_calendar_destinations: tuple[str, ...]
     searchapi_calendar_outbound_window_days: int
     searchapi_calendar_window_step_days: int
+    searchapi_booking_link_limit: int
     require_verified_alerts: bool
     notify_no_deals: bool
     no_deal_candidate_limit: int
@@ -131,6 +132,7 @@ def load_config(env_file: str | None = ".env") -> AppConfig:
         searchapi_calendar_destinations=calendar_destinations,
         searchapi_calendar_outbound_window_days=_int("SEARCHAPI_CALENDAR_OUTBOUND_WINDOW_DAYS", 7),
         searchapi_calendar_window_step_days=_int("SEARCHAPI_CALENDAR_WINDOW_STEP_DAYS", 45),
+        searchapi_booking_link_limit=_int("SEARCHAPI_BOOKING_LINK_LIMIT", 3),
         require_verified_alerts=_bool("REQUIRE_VERIFIED_ALERTS", False),
         notify_no_deals=_bool("NOTIFY_NO_DEALS", True),
         no_deal_candidate_limit=_int("NO_DEAL_CANDIDATE_LIMIT", 8),

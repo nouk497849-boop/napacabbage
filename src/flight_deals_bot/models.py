@@ -63,6 +63,7 @@ class Segment:
     flight_number: str | None = None
     cabin: Cabin | None = None
     duration_minutes: int | None = None
+    aircraft: str | None = None
 
 
 @dataclass(frozen=True)

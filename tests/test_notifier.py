@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from flight_deals_bot.models import Cabin, Quote
+from flight_deals_bot.models import Baseline, Cabin, DealScore, Quote, Segment
 from flight_deals_bot.notifier import TelegramNotifier, format_deal_message, format_no_deals_message, quote_link
 
 
@@ -11,7 +11,7 @@ class FakeHttp:
     def __init__(self) -> None:
         self.calls = []
 
-    def post_json(self, url, payload, headers=None):
+    def post_json(self, url, payload, headers=None):  # noqa: ANN001
         self.calls.append((url, payload, headers))
         return {"ok": True}
 
@@ -29,23 +29,23 @@ def test_telegram_send_text_posts_message() -> None:
     assert payload["text"] == "hello"
 
 
-def test_no_deals_message_includes_counts() -> None:
+def test_no_deals_message_includes_city_country_continent_and_link() -> None:
     message = format_no_deals_message(
         discovered_count=58,
         verified_count=18,
         scored_count=0,
-        enabled_sources=["searchapi"],
+        enabled_sources=["travelpayouts", "searchapi"],
         candidates=[
             Quote(
-                source="searchapi",
+                source="travelpayouts",
                 origin="TPE",
-                destination="NRT",
+                destination="SEL",
                 departure_date=date(2026, 10, 1),
                 return_date=date(2026, 10, 8),
-                cabin=Cabin.BUSINESS,
-                price=Decimal("32000"),
-                airline="CI",
-                stops=1,
+                cabin=Cabin.ECONOMY,
+                price=Decimal("5764"),
+                airline="BR",
+                stops=0,
             )
         ],
         source_errors={},
@@ -53,49 +53,60 @@ def test_no_deals_message_includes_counts() -> None:
 
     assert "目前沒有找到符合低價門檻的機票" in message
     assert "候選票：58" in message
-    assert "資料源：searchapi" in message
-    assert "候選票前幾筆" in message
-    assert "Taiwan Taoyuan International Airport" in message
-    assert "Narita International Airport" in message
-    assert "台灣" in message
-    assert "日本" in message
+    assert "資料源：travelpayouts, searchapi" in message
     assert "<b>亞洲</b>" in message
-    assert "TWD 32,000" in message
-    assert "約原價" in message
-    assert '<a href="' in message
+    assert "SEL 首爾, 南韓" in message
+    assert "亞洲・南韓" in message
+    assert "長榮航空 (BR)" in message
+    assert "https://search.aviasales.com/flights/?" in message
+    assert "destination_iata=SEL" in message
 
 
-def test_deal_message_includes_route_country_and_fallback_link() -> None:
-    from flight_deals_bot.models import Baseline, DealScore
-
+def test_deal_message_includes_localized_route_airline_flight_and_aircraft() -> None:
     quote = Quote(
-        source="fixture",
+        source="travelpayouts",
         origin="TPE",
-        destination="NRT",
-        departure_date=date(2026, 10, 1),
-        return_date=date(2026, 10, 8),
+        destination="SEL",
+        departure_date=date(2026, 8, 20),
+        return_date=date(2026, 8, 27),
         cabin=Cabin.ECONOMY,
-        price=Decimal("7000"),
+        price=Decimal("5764"),
+        airline="BR",
+        stops=0,
+        booking_url="https://search.aviasales.com/flights/?origin_iata=TPE&destination_iata=SEL",
+        segments=(
+            Segment(
+                origin="TPE",
+                destination="ICN",
+                marketing_carrier="BR",
+                flight_number="160",
+                cabin=Cabin.ECONOMY,
+                aircraft="Airbus A321",
+            ),
+        ),
+        notes=("Travelpayouts latest prices are cached and should be rechecked before booking.",),
     )
     score = DealScore(
         quote=quote,
-        baseline=Baseline(price=Decimal("12000"), sample_size=4, source="fixture"),
-        discount=Decimal("0.416"),
-        score=Decimal("41.6"),
-        reason="fixture",
+        baseline=Baseline(price=Decimal("30000"), sample_size=1, source="absolute"),
+        discount=Decimal("0.81"),
+        score=Decimal("81"),
+        reason="absolute",
     )
 
     message = format_deal_message(score)
 
-    assert "Taiwan Taoyuan International Airport" in message
-    assert "日本" in message
-    assert "分類：亞洲" in message
-    assert "目前約為原價 58%" in message
-    assert "查看票價 / 搜尋此航線" in message
-    assert "https://www.google.com/travel/flights/search?" in message
+    assert "航線：TPE Taiwan Taoyuan International Airport, 台灣 -&gt; SEL 首爾, 南韓" in message
+    assert "目的地國家：南韓" in message
+    assert "洲別分類：亞洲" in message
+    assert "艙等：經濟艙" in message
+    assert "航空公司：長榮航空 (BR)" in message
+    assert "航班/機型：TPE-&gt;ICN 長榮航空 (BR) BR160 機型 Airbus A321" in message
+    assert "Travelpayouts 快取票價" in message
+    assert "查看 Aviasales 票價" in message
 
 
-def test_quote_link_rejects_searchapi_json_urls() -> None:
+def test_quote_link_rejects_searchapi_json_urls_and_uses_aviasales_fallback() -> None:
     quote = Quote(
         source="searchapi",
         origin="TPE",
@@ -109,5 +120,7 @@ def test_quote_link_rejects_searchapi_json_urls() -> None:
 
     link = quote_link(quote)
 
-    assert link.startswith("https://www.google.com/travel/flights/search?")
+    assert link.startswith("https://search.aviasales.com/flights/?")
+    assert "origin_iata=TPE" in link
+    assert "destination_iata=HND" in link
     assert "searchapi.io" not in link

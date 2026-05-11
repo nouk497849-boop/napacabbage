@@ -134,7 +134,7 @@ def test_travelpayouts_latest_prices_requests_only_economy_trip_class() -> None:
     assert http.calls[0]["trip_class"] == 0
     assert len(quotes) == 1
     assert quotes[0].cabin == Cabin.ECONOMY
-    assert any("supports economy only" in note for note in ctx.diagnostics["travelpayouts"])
+    assert any("只支援經濟艙" in note for note in ctx.diagnostics["travelpayouts"])
 
 
 def test_pipeline_dry_run_scores_and_formats_alert() -> None:
@@ -296,6 +296,7 @@ def _config() -> AppConfig:
             searchapi_calendar_destinations=("NRT", "ICN"),
             searchapi_calendar_outbound_window_days=7,
             searchapi_calendar_window_step_days=45,
+            searchapi_booking_link_limit=3,
             require_verified_alerts=False,
             notify_no_deals=True,
             no_deal_candidate_limit=8,

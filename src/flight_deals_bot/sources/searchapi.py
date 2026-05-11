@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal
 from statistics import median
@@ -187,6 +188,7 @@ class SearchApiAdapter(BaseAdapter):
             return []
         quotes: list[Quote] = []
         seen: set[tuple[str, str, str, str, Cabin]] = set()
+        booking_link_attempts = 0
         for candidate in candidates:
             if candidate.return_date is None:
                 continue
@@ -225,8 +227,49 @@ class SearchApiAdapter(BaseAdapter):
                 ctx.note(self.name, f"SearchApi verification stopped by provider rate limit after verifying {len(quotes)} quote(s)")
                 return quotes
             if payload:
-                quotes.extend(self.parse_flights(payload, fallback=candidate, currency=ctx.config.search.currency))
+                parsed_quotes = self.parse_flights(payload, fallback=candidate, currency=ctx.config.search.currency)
+                enriched_quotes: list[Quote] = []
+                for quote in parsed_quotes:
+                    if quote.raw.get("booking_token") and booking_link_attempts < ctx.config.search.searchapi_booking_link_limit:
+                        booking_link_attempts += 1
+                        quote = self._try_enrich_booking_link(ctx, key, candidate, quote)
+                        if ctx.was_provider_rate_limited(self.name) or ctx.was_quota_blocked(self.name):
+                            enriched_quotes.append(quote)
+                            quotes.extend(enriched_quotes)
+                            return quotes
+                    enriched_quotes.append(quote)
+                quotes.extend(enriched_quotes)
         return quotes
+
+    def _try_enrich_booking_link(self, ctx: SourceContext, key: str, candidate: Quote, quote: Quote) -> Quote:
+        booking_token = quote.raw.get("booking_token")
+        if not booking_token:
+            return quote
+        payload = self._get_json_or_note(
+            ctx,
+            label=f"Booking options {candidate.origin}-{candidate.destination} {candidate.cabin.value}",
+            params={
+                "api_key": key,
+                "engine": "google_flights",
+                "departure_id": candidate.origin,
+                "arrival_id": candidate.destination,
+                "outbound_date": candidate.departure_date.isoformat(),
+                "return_date": candidate.return_date.isoformat() if candidate.return_date else None,
+                "flight_type": "round_trip" if candidate.return_date else "one_way",
+                "travel_class": SEARCHAPI_CLASS[candidate.cabin],
+                "currency": ctx.config.search.currency,
+                "gl": "tw",
+                "hl": "zh-tw",
+                "adults": ctx.config.search.adults,
+                "booking_token": booking_token,
+            },
+        )
+        if not payload:
+            return quote
+        booking_url = _first_public_booking_option_url(payload)
+        if not booking_url:
+            return quote
+        return replace(quote, booking_url=booking_url, raw={**quote.raw, "booking_options": payload.get("booking_options")})
 
     def _get_json_or_note(self, ctx: SourceContext, label: str, params: dict) -> dict | None:
         try:
@@ -248,7 +291,7 @@ class SearchApiAdapter(BaseAdapter):
             if isinstance(value, list):
                 results.extend(value)
         metadata = payload.get("search_metadata") or {}
-        booking_url = _first_public_booking_option_url(payload) or _public_url(metadata.get("google_url"))
+        booking_url = _first_public_booking_option_url(payload) or _first_public_metadata_url(metadata)
         baseline_hint = _price_insight_hint(payload.get("price_insights") or {})
         quotes: list[Quote] = []
         for item in results:
@@ -293,7 +336,7 @@ class SearchApiAdapter(BaseAdapter):
         stay_lengths: tuple[int, ...],
     ) -> list[Quote]:
         metadata = payload.get("search_metadata") or {}
-        booking_url = _public_url(metadata.get("google_url"))
+        booking_url = _first_public_metadata_url(metadata)
         search_parameters = payload.get("search_parameters") or {}
         result_currency = str(search_parameters.get("currency") or currency).upper()
         allowed_stays = set(stay_lengths)
@@ -316,9 +359,9 @@ class SearchApiAdapter(BaseAdapter):
             stay_nights = (return_date - departure).days
             if allowed_stays and stay_nights not in allowed_stays:
                 continue
-            notes = ["SearchApi Google Flights Calendar candidate; verify before booking."]
+            notes = ["SearchApi Google Flights Calendar 候選票，訂票前請重新確認票價與座位。"]
             if item.get("is_lowest_price"):
-                notes.append("Calendar marked this as a lowest-price date.")
+                notes.append("Google Flights Calendar 標記這組日期為低價。")
             quotes.append(
                 Quote(
                     source=self.name,
@@ -340,7 +383,7 @@ class SearchApiAdapter(BaseAdapter):
 
     def parse_explore(self, payload: dict, origin: str, cabin: Cabin, currency: str) -> list[Quote]:
         metadata = payload.get("search_metadata") or {}
-        booking_url = _public_url(metadata.get("google_url"))
+        booking_url = _first_public_metadata_url(metadata)
         search_parameters = payload.get("search_parameters") or {}
         result_currency = str(search_parameters.get("currency") or currency).upper()
         quotes: list[Quote] = []
@@ -372,7 +415,7 @@ class SearchApiAdapter(BaseAdapter):
                     booking_url=booking_url,
                     raw=item,
                     verified=False,
-                    notes=("SearchApi explore is a broad Google Travel candidate; verify before booking.",),
+                    notes=("SearchApi Explore 廣域候選票，訂票前請重新確認票價與座位。",),
                 )
             )
         return quotes
@@ -415,6 +458,7 @@ def _parse_segments(item: dict, fallback: Quote) -> list[Segment]:
                 flight_number=raw.get("flight_number"),
                 cabin=cabin,
                 duration_minutes=_int_or_none(raw.get("duration")),
+                aircraft=_first_text(raw, ("airplane", "aircraft", "aircraft_type", "equipment")),
             )
         )
     return segments
@@ -568,12 +612,35 @@ def _first_public_booking_option_url(payload: dict) -> str | None:
         for candidate in (option, option.get("departure"), option.get("arrival")):
             if not isinstance(candidate, dict):
                 continue
+            url = _public_url(candidate.get("url"))
+            if url:
+                return url
             request = candidate.get("booking_request")
             if not isinstance(request, dict):
                 continue
             url = _public_url(request.get("url"))
             if url:
                 return url
+    return None
+
+
+def _first_public_metadata_url(metadata: dict) -> str | None:
+    for key in ("google_url", "request_url", "html_url"):
+        url = _public_url(metadata.get(key))
+        if url:
+            return url
+    return None
+
+
+def _first_text(raw: dict, keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, dict):
+            code = value.get("code") or value.get("name")
+            if code:
+                return str(code)
     return None
 
 

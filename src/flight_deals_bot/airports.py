@@ -4,6 +4,27 @@ from functools import lru_cache
 from typing import Any
 
 
+CITY_CODE_OVERRIDES = {
+    "BJS": {"name": "北京", "country": "CN"},
+    "CHI": {"name": "芝加哥", "country": "US"},
+    "JKT": {"name": "雅加達", "country": "ID"},
+    "LON": {"name": "倫敦", "country": "GB"},
+    "MIL": {"name": "米蘭", "country": "IT"},
+    "MOW": {"name": "莫斯科", "country": "RU"},
+    "NHA": {"name": "芽莊", "country": "VN"},
+    "NYC": {"name": "紐約", "country": "US"},
+    "OSA": {"name": "大阪", "country": "JP"},
+    "PAR": {"name": "巴黎", "country": "FR"},
+    "ROM": {"name": "羅馬", "country": "IT"},
+    "SEL": {"name": "首爾", "country": "KR"},
+    "SHA": {"name": "上海", "country": "CN"},
+    "SPK": {"name": "札幌", "country": "JP"},
+    "STO": {"name": "斯德哥爾摩", "country": "SE"},
+    "TYO": {"name": "東京", "country": "JP"},
+    "WAS": {"name": "華盛頓", "country": "US"},
+    "YTO": {"name": "多倫多", "country": "CA"},
+}
+
 COUNTRY_NAME_OVERRIDES = {
     "TW": "台灣",
     "HK": "香港",
@@ -345,11 +366,15 @@ def continent_label_for_country(alpha_2: str | None) -> str:
 
 
 def airport_country_code(iata_code: str) -> str | None:
-    airport = _airport_data().get(iata_code.upper())
-    if not airport:
+    location = _location_data(iata_code)
+    if not location:
         return None
-    country = airport.get("country")
+    country = location.get("country")
     return str(country).upper() if country else None
+
+
+def airport_country_label(iata_code: str) -> str | None:
+    return country_name(airport_country_code(iata_code))
 
 
 def airport_continent_key(iata_code: str) -> str:
@@ -362,11 +387,19 @@ def airport_continent_label(iata_code: str) -> str:
 
 def airport_label(iata_code: str) -> str:
     code = iata_code.upper()
-    airport = _airport_data().get(code)
-    if not airport:
+    location = _location_data(code)
+    if not location:
         return code
-    name = airport.get("name") or code
-    country = country_name(airport.get("country"))
+    name = location.get("name") or code
+    country = country_name(location.get("country"))
     if country:
         return f"{code} {name}, {country}"
     return f"{code} {name}"
+
+
+def _location_data(iata_code: str) -> dict[str, Any] | None:
+    code = iata_code.upper()
+    airport = _airport_data().get(code)
+    if airport:
+        return airport
+    return CITY_CODE_OVERRIDES.get(code)

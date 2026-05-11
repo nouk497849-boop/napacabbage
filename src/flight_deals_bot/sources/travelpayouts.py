@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import urllib.parse
 from datetime import date, timedelta
 
 from ..config import AppConfig
 from ..dates import parse_date
-from ..models import Cabin, Quote
+from ..models import Cabin, Quote, Segment
 from .base import BaseAdapter, SourceContext, safe_decimal
 
 
@@ -29,13 +30,13 @@ class TravelpayoutsAdapter(BaseAdapter):
         if not token:
             return []
         if Cabin.ECONOMY not in ctx.config.search.cabins:
-            ctx.note(self.name, "Travelpayouts latest prices supports economy only; skipped because economy is not enabled")
+            ctx.note(self.name, "Travelpayouts 快取票價目前只支援經濟艙；因為未啟用 economy，所以略過")
             return []
         skipped_cabins = [cabin.value for cabin in ctx.config.search.cabins if cabin is not Cabin.ECONOMY]
         if skipped_cabins:
             ctx.note(
                 self.name,
-                f"Travelpayouts latest prices supports economy only; skipped premium cabins: {', '.join(skipped_cabins)}",
+                f"Travelpayouts 快取票價目前只支援經濟艙；已略過艙等：{', '.join(skipped_cabins)}",
             )
         quotes: list[Quote] = []
         for origin in ctx.config.search.origins:
@@ -55,10 +56,25 @@ class TravelpayoutsAdapter(BaseAdapter):
                 headers={"x-access-token": token},
             )
             if payload:
-                quotes.extend(self.parse_latest(payload, default_cabin=Cabin.ECONOMY, currency=ctx.config.search.currency))
+                quotes.extend(
+                    self.parse_latest(
+                        payload,
+                        default_cabin=Cabin.ECONOMY,
+                        currency=ctx.config.search.currency,
+                        marker=ctx.config.api.travelpayouts_marker,
+                        adults=ctx.config.search.adults,
+                    )
+                )
         return [quote for quote in quotes if self._within_search_window(ctx, quote)]
 
-    def parse_latest(self, payload: dict, default_cabin: Cabin, currency: str) -> list[Quote]:
+    def parse_latest(
+        self,
+        payload: dict,
+        default_cabin: Cabin,
+        currency: str,
+        marker: str | None = None,
+        adults: int = 1,
+    ) -> list[Quote]:
         data = payload.get("data") or []
         if isinstance(data, dict):
             data = list(data.values())
@@ -75,6 +91,18 @@ class TravelpayoutsAdapter(BaseAdapter):
                 continue
             trip_class = item.get("trip_class")
             cabin = TRIP_CLASS_TO_CABIN.get(int(trip_class), default_cabin) if trip_class is not None else default_cabin
+            flight_number = item.get("flight_number")
+            segments = ()
+            if flight_number:
+                segments = (
+                    Segment(
+                        origin=str(item.get("origin_airport") or origin),
+                        destination=str(item.get("destination_airport") or destination),
+                        marketing_carrier=item.get("airline"),
+                        flight_number=str(flight_number),
+                        cabin=cabin,
+                    ),
+                )
             quotes.append(
                 Quote(
                     source=self.name,
@@ -87,10 +115,11 @@ class TravelpayoutsAdapter(BaseAdapter):
                     currency=str(item.get("currency") or currency).upper(),
                     airline=item.get("airline"),
                     stops=_int_or_none(item.get("number_of_changes", item.get("transfers"))),
-                    booking_url=item.get("link") or item.get("url"),
+                    booking_url=_booking_url(item, origin, destination, departure, return_date, cabin, currency, marker, adults),
+                    segments=segments,
                     raw=item,
                     verified=False,
-                    notes=("Travelpayouts latest prices are cached and should be rechecked before booking.",),
+                    notes=("Travelpayouts 快取票價，實際票價與座位請點連結重新確認。",),
                 )
             )
         return quotes
@@ -113,3 +142,76 @@ def _int_or_none(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _booking_url(
+    item: dict,
+    origin: object,
+    destination: object,
+    departure: date,
+    return_date: date | None,
+    cabin: Cabin,
+    currency: str,
+    marker: str | None,
+    adults: int,
+) -> str:
+    link = item.get("link") or item.get("url")
+    if isinstance(link, str) and link.strip():
+        url = _normalize_aviasales_link(link.strip())
+        if marker:
+            return _add_query_params(url, {"marker": marker})
+        return url
+    return _prefilled_aviasales_search_link(
+        origin=str(origin),
+        destination=str(destination),
+        departure=departure,
+        return_date=return_date,
+        cabin=cabin,
+        currency=currency,
+        marker=marker,
+        adults=adults,
+    )
+
+
+def _normalize_aviasales_link(link: str) -> str:
+    if link.startswith(("https://", "http://")):
+        return link
+    if link.startswith("/"):
+        return "https://www.aviasales.com" + link
+    return "https://www.aviasales.com/" + link
+
+
+def _prefilled_aviasales_search_link(
+    origin: str,
+    destination: str,
+    departure: date,
+    return_date: date | None,
+    cabin: Cabin,
+    currency: str,
+    marker: str | None,
+    adults: int,
+) -> str:
+    params = {
+        "origin_iata": origin.upper(),
+        "destination_iata": destination.upper(),
+        "depart_date": departure.isoformat(),
+        "return_date": return_date.isoformat() if return_date else "",
+        "one_way": "false" if return_date else "true",
+        "adults": max(adults, 1),
+        "children": 0,
+        "infants": 0,
+        "trip_class": CABIN_TO_TRIP_CLASS.get(cabin, 0),
+        "currency": currency.upper(),
+        "locale": "zh",
+    }
+    if marker:
+        params["marker"] = marker
+    return "https://search.aviasales.com/flights/?" + urllib.parse.urlencode(params)
+
+
+def _add_query_params(url: str, params: dict[str, str]) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    existing = {key for key, _value in query}
+    query.extend((key, value) for key, value in params.items() if key not in existing)
+    return urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(query)))
