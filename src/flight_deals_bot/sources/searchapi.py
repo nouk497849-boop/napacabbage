@@ -39,14 +39,16 @@ class SearchApiAdapter(BaseAdapter):
             ctx.note(self.name, "SearchApi Explore disabled by SEARCHAPI_EXPLORE_LIMIT=0")
             return []
         quotes: list[Quote] = []
-        requests_made = 0
+        attempts = 0
+        start_count = ctx.provider_request_count(self.name)
         cabins = sorted(ctx.config.search.cabins, key=_cabin_priority)
         for origin in ctx.config.search.origins:
             for cabin in cabins:
-                if requests_made >= ctx.config.search.searchapi_explore_limit:
-                    ctx.note(self.name, f"SearchApi Explore used {requests_made} request(s), parsed {len(quotes)} candidate(s)")
+                if attempts >= ctx.config.search.searchapi_explore_limit:
+                    sent = ctx.provider_request_count(self.name) - start_count
+                    ctx.note(self.name, f"SearchApi Explore attempted {attempts} request(s), sent {sent}, parsed {len(quotes)} candidate(s)")
                     return quotes
-                requests_made += 1
+                attempts += 1
                 payload = ctx.get_json(
                     self.name,
                     self.endpoint,
@@ -64,18 +66,27 @@ class SearchApiAdapter(BaseAdapter):
                         "adults": ctx.config.search.adults,
                     },
                 )
+                if ctx.was_quota_blocked(self.name):
+                    sent = ctx.provider_request_count(self.name) - start_count
+                    ctx.note(self.name, f"SearchApi Explore stopped by local quota after sending {sent} provider request(s)")
+                    return quotes
                 if payload:
                     quotes.extend(self.parse_explore(payload, origin=origin, cabin=cabin, currency=ctx.config.search.currency))
-        ctx.note(self.name, f"SearchApi Explore used {requests_made} request(s), parsed {len(quotes)} candidate(s)")
+        sent = ctx.provider_request_count(self.name) - start_count
+        ctx.note(self.name, f"SearchApi Explore attempted {attempts} request(s), sent {sent}, parsed {len(quotes)} candidate(s)")
         return quotes
 
     def _discover_calendar(self, ctx: SourceContext, key: str, explore_quotes: list[Quote]) -> list[Quote]:
         if ctx.config.search.searchapi_calendar_limit <= 0:
             ctx.note(self.name, "SearchApi Calendar disabled by SEARCHAPI_CALENDAR_LIMIT=0")
             return []
+        if ctx.was_quota_blocked(self.name):
+            ctx.note(self.name, "SearchApi Calendar skipped because local quota was already reached")
+            return []
         quotes: list[Quote] = []
-        requests_made = 0
+        attempts = 0
         rows_seen = 0
+        start_count = ctx.provider_request_count(self.name)
         destinations = _calendar_destinations(ctx, explore_quotes)
         windows = _calendar_windows(ctx)
         cabins = sorted(ctx.config.search.cabins, key=_cabin_priority)
@@ -87,17 +98,18 @@ class SearchApiAdapter(BaseAdapter):
             cabins,
             windows,
         ):
-            if requests_made >= ctx.config.search.searchapi_calendar_limit:
+            if attempts >= ctx.config.search.searchapi_calendar_limit:
+                sent = ctx.provider_request_count(self.name) - start_count
                 ctx.note(
                     self.name,
-                    f"SearchApi Calendar used {requests_made} request(s), saw {rows_seen} row(s), parsed {len(quotes)} candidate(s)",
+                    f"SearchApi Calendar attempted {attempts} request(s), sent {sent}, saw {rows_seen} row(s), parsed {len(quotes)} candidate(s)",
                 )
                 return quotes
             if origin == destination:
                 continue
             return_start = outbound_start + timedelta(days=min_stay)
             return_end = outbound_end + timedelta(days=max_stay)
-            requests_made += 1
+            attempts += 1
             payload = ctx.get_json(
                 self.name,
                 self.endpoint,
@@ -122,6 +134,10 @@ class SearchApiAdapter(BaseAdapter):
                     "adults": ctx.config.search.adults,
                 },
             )
+            if ctx.was_quota_blocked(self.name):
+                sent = ctx.provider_request_count(self.name) - start_count
+                ctx.note(self.name, f"SearchApi Calendar stopped by local quota after sending {sent} provider request(s)")
+                return quotes
             if payload:
                 calendar_rows = payload.get("calendar") or []
                 row_count = len(calendar_rows) if isinstance(calendar_rows, list) else 0
@@ -147,9 +163,10 @@ class SearchApiAdapter(BaseAdapter):
                     )
             else:
                 ctx.note(self.name, f"Calendar {origin}-{destination} {cabin.value} returned an empty response")
+        sent = ctx.provider_request_count(self.name) - start_count
         ctx.note(
             self.name,
-            f"SearchApi Calendar used {requests_made} request(s), saw {rows_seen} row(s), parsed {len(quotes)} candidate(s)",
+            f"SearchApi Calendar attempted {attempts} request(s), sent {sent}, saw {rows_seen} row(s), parsed {len(quotes)} candidate(s)",
         )
         return quotes
 

@@ -23,11 +23,19 @@ class SourceContext:
     http: JsonHttpClient
     store: Store
     diagnostics: dict[str, list[str]] = field(default_factory=dict)
+    provider_request_counts: dict[str, int] = field(default_factory=dict)
+    quota_blocked_sources: set[str] = field(default_factory=set)
 
     def note(self, source: str, message: str) -> None:
         entries = self.diagnostics.setdefault(source, [])
         if message not in entries:
             entries.append(message)
+
+    def provider_request_count(self, source: str) -> int:
+        return self.provider_request_counts.get(source, 0)
+
+    def was_quota_blocked(self, source: str) -> bool:
+        return source in self.quota_blocked_sources
 
     def get_json(
         self,
@@ -66,7 +74,10 @@ class SourceContext:
         limits = self.config.source_limits.get(source, SourceLimits(0, 0))
         allowed = self.store.try_consume_quota(source, limits)
         if not allowed:
+            self.quota_blocked_sources.add(source)
             self.note(source, "quota limit reached; skipped provider request")
+        else:
+            self.provider_request_counts[source] = self.provider_request_counts.get(source, 0) + 1
         return allowed
 
 
