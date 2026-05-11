@@ -85,6 +85,7 @@ def format_no_deals_message(
     scored_count: int,
     enabled_sources: list[str],
     candidates: list[Quote] | None = None,
+    source_notes: list[str] | None = None,
     source_errors: dict[str, str] | None = None,
 ) -> str:
     lines = [
@@ -100,6 +101,9 @@ def format_no_deals_message(
         lines.append("<b>候選票前幾筆</b>")
         for index, quote in enumerate(candidates, start=1):
             lines.append(format_candidate_line(index, quote))
+    if source_notes:
+        compact_notes = "; ".join(source_notes)
+        lines.append("診斷：" + html.escape(compact_notes[:700]))
     if source_errors:
         compact = "; ".join(f"{key}: {value}" for key, value in source_errors.items())
         lines.append("錯誤：" + html.escape(compact[:500]))

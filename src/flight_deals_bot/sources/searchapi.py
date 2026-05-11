@@ -36,6 +36,7 @@ class SearchApiAdapter(BaseAdapter):
 
     def _discover_explore(self, ctx: SourceContext, key: str) -> list[Quote]:
         if ctx.config.search.searchapi_explore_limit <= 0:
+            ctx.note(self.name, "SearchApi Explore disabled by SEARCHAPI_EXPLORE_LIMIT=0")
             return []
         quotes: list[Quote] = []
         requests_made = 0
@@ -43,6 +44,7 @@ class SearchApiAdapter(BaseAdapter):
         for origin in ctx.config.search.origins:
             for cabin in cabins:
                 if requests_made >= ctx.config.search.searchapi_explore_limit:
+                    ctx.note(self.name, f"SearchApi Explore used {requests_made} request(s), parsed {len(quotes)} candidate(s)")
                     return quotes
                 requests_made += 1
                 payload = ctx.get_json(
@@ -64,13 +66,16 @@ class SearchApiAdapter(BaseAdapter):
                 )
                 if payload:
                     quotes.extend(self.parse_explore(payload, origin=origin, cabin=cabin, currency=ctx.config.search.currency))
+        ctx.note(self.name, f"SearchApi Explore used {requests_made} request(s), parsed {len(quotes)} candidate(s)")
         return quotes
 
     def _discover_calendar(self, ctx: SourceContext, key: str, explore_quotes: list[Quote]) -> list[Quote]:
         if ctx.config.search.searchapi_calendar_limit <= 0:
+            ctx.note(self.name, "SearchApi Calendar disabled by SEARCHAPI_CALENDAR_LIMIT=0")
             return []
         quotes: list[Quote] = []
         requests_made = 0
+        rows_seen = 0
         destinations = _calendar_destinations(ctx, explore_quotes)
         windows = _calendar_windows(ctx)
         cabins = sorted(ctx.config.search.cabins, key=_cabin_priority)
@@ -83,6 +88,10 @@ class SearchApiAdapter(BaseAdapter):
             windows,
         ):
             if requests_made >= ctx.config.search.searchapi_calendar_limit:
+                ctx.note(
+                    self.name,
+                    f"SearchApi Calendar used {requests_made} request(s), saw {rows_seen} row(s), parsed {len(quotes)} candidate(s)",
+                )
                 return quotes
             if origin == destination:
                 continue
@@ -114,6 +123,10 @@ class SearchApiAdapter(BaseAdapter):
                 },
             )
             if payload:
+                calendar_rows = payload.get("calendar") or []
+                row_count = len(calendar_rows) if isinstance(calendar_rows, list) else 0
+                rows_seen += row_count
+                before = len(quotes)
                 quotes.extend(
                     self.parse_calendar(
                         payload,
@@ -124,6 +137,20 @@ class SearchApiAdapter(BaseAdapter):
                         stay_lengths=ctx.config.search.stay_lengths,
                     )
                 )
+                parsed_count = len(quotes) - before
+                if row_count == 0:
+                    ctx.note(self.name, f"Calendar {origin}-{destination} {cabin.value} returned 0 row(s)")
+                elif parsed_count == 0:
+                    ctx.note(
+                        self.name,
+                        f"Calendar {origin}-{destination} {cabin.value} returned {row_count} row(s), but none matched STAY_LENGTHS",
+                    )
+            else:
+                ctx.note(self.name, f"Calendar {origin}-{destination} {cabin.value} returned an empty response")
+        ctx.note(
+            self.name,
+            f"SearchApi Calendar used {requests_made} request(s), saw {rows_seen} row(s), parsed {len(quotes)} candidate(s)",
+        )
         return quotes
 
     def verify(self, ctx: SourceContext, candidates: list[Quote]) -> list[Quote]:

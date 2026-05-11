@@ -58,15 +58,18 @@ def run_pipeline(
     discovered: list[Quote] = []
     verified: list[Quote] = []
     source_errors: dict[str, str] = {}
+    printed_diagnostics: dict[str, int] = {}
 
     for adapter in enabled_adapters:
         try:
             quotes = adapter.discover(ctx)
             discovered.extend(quotes)
             print(f"{adapter.name}: discovered {len(quotes)} candidates", file=output)
+            _print_new_diagnostics(ctx, adapter.name, printed_diagnostics, output)
         except Exception as exc:  # noqa: BLE001 - source failures should not stop the whole scan
             source_errors[adapter.name] = _error_text(exc)
             print(f"{adapter.name}: discovery failed: {source_errors[adapter.name]}", file=output)
+            _print_new_diagnostics(ctx, adapter.name, printed_diagnostics, output)
 
     store.save_quotes(discovered)
     candidates = select_verification_candidates(discovered, config.search.top_verify_limit)
@@ -78,9 +81,11 @@ def run_pipeline(
             verified.extend(quotes)
             if quotes:
                 print(f"{adapter.name}: verified {len(quotes)} quotes", file=output)
+            _print_new_diagnostics(ctx, adapter.name, printed_diagnostics, output)
         except Exception as exc:  # noqa: BLE001
             source_errors[f"{adapter.name}:verify"] = _error_text(exc)
             print(f"{adapter.name}: verification failed: {source_errors[f'{adapter.name}:verify']}", file=output)
+            _print_new_diagnostics(ctx, adapter.name, printed_diagnostics, output)
 
     store.save_quotes(verified)
     scores = score_quotes(store, discovered + verified, require_verified=config.search.require_verified_alerts)
@@ -112,6 +117,7 @@ def run_pipeline(
             scored_count=0,
             enabled_sources=[adapter.name for adapter in enabled_adapters],
             candidates=select_summary_candidates(discovered + verified, config.search.no_deal_candidate_limit),
+            source_notes=_source_notes(ctx),
             source_errors=source_errors,
         )
         messages.append(no_deals_message)
@@ -220,6 +226,22 @@ def dedupe_scores(scores: Iterable[DealScore]) -> list[DealScore]:
         if (score.quote.verified and not existing.quote.verified) or score.score > existing.score:
             best[key] = score
     return list(best.values())
+
+
+def _print_new_diagnostics(ctx: SourceContext, source: str, printed: dict[str, int], output: TextIO) -> None:
+    notes = ctx.diagnostics.get(source, [])
+    start = printed.get(source, 0)
+    for note in notes[start:]:
+        print(f"{source}: note: {note}", file=output)
+    printed[source] = len(notes)
+
+
+def _source_notes(ctx: SourceContext) -> list[str]:
+    notes: list[str] = []
+    for source, entries in ctx.diagnostics.items():
+        for entry in entries:
+            notes.append(f"{source}: {entry}")
+    return notes
 
 
 def _error_text(exc: Exception) -> str:

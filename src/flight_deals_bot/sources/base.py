@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from ..config import AppConfig
@@ -22,6 +22,12 @@ class SourceContext:
     config: AppConfig
     http: JsonHttpClient
     store: Store
+    diagnostics: dict[str, list[str]] = field(default_factory=dict)
+
+    def note(self, source: str, message: str) -> None:
+        entries = self.diagnostics.setdefault(source, [])
+        if message not in entries:
+            entries.append(message)
 
     def get_json(
         self,
@@ -58,7 +64,10 @@ class SourceContext:
 
     def _consume(self, source: str) -> bool:
         limits = self.config.source_limits.get(source, SourceLimits(0, 0))
-        return self.store.try_consume_quota(source, limits)
+        allowed = self.store.try_consume_quota(source, limits)
+        if not allowed:
+            self.note(source, "quota limit reached; skipped provider request")
+        return allowed
 
 
 class BaseAdapter:
