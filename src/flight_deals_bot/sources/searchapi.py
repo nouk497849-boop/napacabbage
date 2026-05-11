@@ -72,6 +72,10 @@ class SearchApiAdapter(BaseAdapter):
                     sent = ctx.provider_request_count(self.name) - start_count
                     ctx.note(self.name, f"SearchApi Explore stopped by local quota after sending {sent} provider request(s)")
                     return quotes
+                if ctx.was_provider_rate_limited(self.name):
+                    sent = ctx.provider_request_count(self.name) - start_count
+                    ctx.note(self.name, f"SearchApi Explore stopped by provider rate limit after sending {sent} provider request(s)")
+                    return quotes
                 if payload:
                     quotes.extend(self.parse_explore(payload, origin=origin, cabin=cabin, currency=ctx.config.search.currency))
         sent = ctx.provider_request_count(self.name) - start_count
@@ -84,6 +88,9 @@ class SearchApiAdapter(BaseAdapter):
             return []
         if ctx.was_quota_blocked(self.name):
             ctx.note(self.name, "SearchApi Calendar skipped because local quota was already reached")
+            return []
+        if ctx.was_provider_rate_limited(self.name):
+            ctx.note(self.name, "SearchApi Calendar skipped because provider rate limit was already reached")
             return []
         quotes: list[Quote] = []
         attempts = 0
@@ -140,6 +147,10 @@ class SearchApiAdapter(BaseAdapter):
                 sent = ctx.provider_request_count(self.name) - start_count
                 ctx.note(self.name, f"SearchApi Calendar stopped by local quota after sending {sent} provider request(s)")
                 return quotes
+            if ctx.was_provider_rate_limited(self.name):
+                sent = ctx.provider_request_count(self.name) - start_count
+                ctx.note(self.name, f"SearchApi Calendar stopped by provider rate limit after sending {sent} provider request(s)")
+                return quotes
             if payload:
                 calendar_rows = payload.get("calendar") or []
                 row_count = len(calendar_rows) if isinstance(calendar_rows, list) else 0
@@ -163,8 +174,6 @@ class SearchApiAdapter(BaseAdapter):
                         self.name,
                         f"Calendar {origin}-{destination} {cabin.value} returned {row_count} row(s), but none matched STAY_LENGTHS",
                     )
-            else:
-                ctx.note(self.name, f"Calendar {origin}-{destination} {cabin.value} returned an empty response")
         sent = ctx.provider_request_count(self.name) - start_count
         ctx.note(
             self.name,
@@ -209,6 +218,12 @@ class SearchApiAdapter(BaseAdapter):
                     "adults": ctx.config.search.adults,
                 },
             )
+            if ctx.was_quota_blocked(self.name):
+                ctx.note(self.name, f"SearchApi verification stopped by local quota after verifying {len(quotes)} quote(s)")
+                return quotes
+            if ctx.was_provider_rate_limited(self.name):
+                ctx.note(self.name, f"SearchApi verification stopped by provider rate limit after verifying {len(quotes)} quote(s)")
+                return quotes
             if payload:
                 quotes.extend(self.parse_flights(payload, fallback=candidate, currency=ctx.config.search.currency))
         return quotes
@@ -217,6 +232,10 @@ class SearchApiAdapter(BaseAdapter):
         try:
             return ctx.get_json(self.name, self.endpoint, params=params)
         except HttpError as exc:
+            if exc.status == 429:
+                ctx.mark_provider_rate_limited(self.name)
+                ctx.note(self.name, f"{label} skipped: rate limited by provider")
+                return None
             if _is_transient_http_error(exc):
                 ctx.note(self.name, f"{label} skipped: {_short_http_error(exc)}")
                 return None

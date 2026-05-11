@@ -28,29 +28,34 @@ class TravelpayoutsAdapter(BaseAdapter):
         token = ctx.config.api.travelpayouts_token
         if not token:
             return []
+        if Cabin.ECONOMY not in ctx.config.search.cabins:
+            ctx.note(self.name, "Travelpayouts latest prices supports economy only; skipped because economy is not enabled")
+            return []
+        skipped_cabins = [cabin.value for cabin in ctx.config.search.cabins if cabin is not Cabin.ECONOMY]
+        if skipped_cabins:
+            ctx.note(
+                self.name,
+                f"Travelpayouts latest prices supports economy only; skipped premium cabins: {', '.join(skipped_cabins)}",
+            )
         quotes: list[Quote] = []
         for origin in ctx.config.search.origins:
-            for cabin in ctx.config.search.cabins:
-                trip_class = CABIN_TO_TRIP_CLASS.get(cabin)
-                if trip_class is None:
-                    continue
-                payload = ctx.get_json(
-                    self.name,
-                    self.endpoint,
-                    params={
-                        "currency": ctx.config.search.currency.lower(),
-                        "period_type": "year",
-                        "page": 1,
-                        "limit": 100,
-                        "show_to_affiliates": "true",
-                        "sorting": "price",
-                        "origin": origin,
-                        "trip_class": trip_class,
-                    },
-                    headers={"x-access-token": token},
-                )
-                if payload:
-                    quotes.extend(self.parse_latest(payload, default_cabin=cabin, currency=ctx.config.search.currency))
+            payload = ctx.get_json(
+                self.name,
+                self.endpoint,
+                params={
+                    "currency": ctx.config.search.currency.lower(),
+                    "period_type": "year",
+                    "page": 1,
+                    "limit": 100,
+                    "show_to_affiliates": "true",
+                    "sorting": "price",
+                    "origin": origin,
+                    "trip_class": CABIN_TO_TRIP_CLASS[Cabin.ECONOMY],
+                },
+                headers={"x-access-token": token},
+            )
+            if payload:
+                quotes.extend(self.parse_latest(payload, default_cabin=Cabin.ECONOMY, currency=ctx.config.search.currency))
         return [quote for quote in quotes if self._within_search_window(ctx, quote)]
 
     def parse_latest(self, payload: dict, default_cabin: Cabin, currency: str) -> list[Quote]:

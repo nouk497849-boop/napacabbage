@@ -13,6 +13,7 @@ from flight_deals_bot.models import Cabin, Quote, SourceLimits
 from flight_deals_bot.pipeline import run_pipeline, select_summary_candidates
 from flight_deals_bot.sources.base import BaseAdapter, SourceContext
 from flight_deals_bot.sources.searchapi import SearchApiAdapter
+from flight_deals_bot.sources.travelpayouts import TravelpayoutsAdapter
 from flight_deals_bot.storage import InMemoryStore
 
 
@@ -82,6 +83,58 @@ def test_searchapi_discovery_keeps_prior_quotes_when_one_calendar_request_times_
     assert ctx.provider_request_count("searchapi") == 2
     assert len(store.quota_usage["searchapi"]) == 1
     assert any("skipped" in note for note in ctx.diagnostics["searchapi"])
+
+
+def test_searchapi_stops_current_run_after_provider_rate_limit() -> None:
+    config = _config()
+    config = replace(
+        config,
+        search=replace(
+            config.search,
+            origins=("TPE",),
+            cabins=(Cabin.BUSINESS,),
+            searchapi_explore_limit=0,
+            searchapi_calendar_limit=5,
+            searchapi_calendar_destinations=("NRT", "LAX", "LHR"),
+        ),
+        api=replace(config.api, searchapi_key="key"),
+        source_limits={"searchapi": SourceLimits(daily=10, monthly=10)},
+    )
+    http = RateLimitedSearchApiHttp()
+    ctx = SourceContext(config=config, http=http, store=InMemoryStore())
+
+    quotes = SearchApiAdapter().discover(ctx)
+
+    assert quotes == []
+    assert http.calls == 1
+    assert ctx.provider_request_count("searchapi") == 1
+    assert ctx.was_provider_rate_limited("searchapi") is True
+    assert any("provider rate limit" in note for note in ctx.diagnostics["searchapi"])
+
+
+def test_travelpayouts_latest_prices_requests_only_economy_trip_class() -> None:
+    config = _config()
+    config = replace(
+        config,
+        search=replace(
+            config.search,
+            origins=("TPE",),
+            cabins=(Cabin.ECONOMY, Cabin.BUSINESS, Cabin.FIRST),
+            stay_lengths=(7,),
+        ),
+        api=replace(config.api, travelpayouts_token="token"),
+        source_limits={"travelpayouts": SourceLimits(daily=10, monthly=10)},
+    )
+    http = RecordingTravelpayoutsHttp()
+    ctx = SourceContext(config=config, http=http, store=InMemoryStore())
+
+    quotes = TravelpayoutsAdapter().discover(ctx)
+
+    assert len(http.calls) == 1
+    assert http.calls[0]["trip_class"] == 0
+    assert len(quotes) == 1
+    assert quotes[0].cabin == Cabin.ECONOMY
+    assert any("supports economy only" in note for note in ctx.diagnostics["travelpayouts"])
 
 
 def test_pipeline_dry_run_scores_and_formats_alert() -> None:
@@ -191,6 +244,38 @@ class FlakySearchApiHttp:
             "search_metadata": {"google_url": "https://www.google.com/travel/flights/search"},
             "search_parameters": {"currency": "TWD"},
             "calendar": [{"departure": outbound, "return": return_date, "price": 5000}],
+        }
+
+
+class RateLimitedSearchApiHttp:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def get_json(self, url, params=None, headers=None):  # noqa: ANN001
+        self.calls += 1
+        raise HttpError(429, url, "rate limit")
+
+
+class RecordingTravelpayoutsHttp:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def get_json(self, url, params=None, headers=None):  # noqa: ANN001
+        self.calls.append(dict(params or {}))
+        if params and params.get("trip_class") != 0:
+            raise HttpError(400, url, "Only economy trip class is supported")
+        return {
+            "data": [
+                {
+                    "origin": "TPE",
+                    "destination": "NRT",
+                    "depart_date": "2026-10-01",
+                    "return_date": "2026-10-08",
+                    "value": 10000,
+                    "trip_class": 0,
+                    "currency": "TWD",
+                }
+            ]
         }
 
 

@@ -25,6 +25,7 @@ class SourceContext:
     diagnostics: dict[str, list[str]] = field(default_factory=dict)
     provider_request_counts: dict[str, int] = field(default_factory=dict)
     quota_blocked_sources: set[str] = field(default_factory=set)
+    provider_rate_limited_sources: set[str] = field(default_factory=set)
 
     def note(self, source: str, message: str) -> None:
         entries = self.diagnostics.setdefault(source, [])
@@ -36,6 +37,12 @@ class SourceContext:
 
     def was_quota_blocked(self, source: str) -> bool:
         return source in self.quota_blocked_sources
+
+    def mark_provider_rate_limited(self, source: str) -> None:
+        self.provider_rate_limited_sources.add(source)
+
+    def was_provider_rate_limited(self, source: str) -> bool:
+        return source in self.provider_rate_limited_sources
 
     def get_json(
         self,
