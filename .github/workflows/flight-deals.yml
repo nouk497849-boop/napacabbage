@@ -2,7 +2,9 @@ name: Flight Deals Scanner
 
 on:
   schedule:
-    - cron: "0 */3 * * *"
+    # GitHub cron uses UTC. This runs at 10:00, 13:00, 16:00, 19:00,
+    # 22:00, 01:00, 04:00, and 07:00 in Asia/Taipei.
+    - cron: "0 2-23/3 * * *"
   workflow_dispatch:
     inputs:
       dry_run:

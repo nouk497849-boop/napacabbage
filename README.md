@@ -47,6 +47,7 @@ Postgres：
 已提供 `.github/workflows/flight-deals.yml`：
 
 - 每 3 小時自動執行一次。
+- GitHub cron 使用 UTC；目前設定對應台灣時間 10:00、13:00、16:00、19:00、22:00、01:00、04:00、07:00，實際啟動可能被 GitHub 延後數分鐘到數十分鐘。
 - 支援 `workflow_dispatch` 手動 dry-run。
 - secrets 放 API key、Telegram、`DATABASE_URL`。
 - vars 可調整 `ORIGINS`、`STAY_LENGTHS`、`CABINS`、`REQUIRE_VERIFIED_ALERTS`。
