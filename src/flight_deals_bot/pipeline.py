@@ -109,7 +109,13 @@ def run_pipeline(
             price_drop_pct=config.search.alert_price_drop_pct,
         )
     ]
-    scores = sorted(scores, key=lambda item: item.score, reverse=True)[: config.search.max_alerts_per_run]
+    print(f"Scored by source: {_count_by_source(score.quote for score in scores)}", file=output)
+    scores = select_alert_scores(
+        scores,
+        limit=config.search.max_alerts_per_run,
+        per_source_limit=config.search.max_alerts_per_source,
+    )
+    print(f"Selected alerts by source: {_count_by_source(score.quote for score in scores)}", file=output)
 
     notifier = TelegramNotifier(config.telegram_bot_token, config.telegram_chat_id, http=http)
     messages: list[str] = []
@@ -244,6 +250,37 @@ def select_summary_candidates(quotes: Iterable[Quote], limit: int) -> list[Quote
     return selected
 
 
+def select_alert_scores(scores: Iterable[DealScore], limit: int, per_source_limit: int) -> list[DealScore]:
+    if limit <= 0:
+        return []
+    sorted_scores = sorted(scores, key=lambda item: item.score, reverse=True)
+    if per_source_limit <= 0:
+        return sorted_scores[:limit]
+
+    selected: list[DealScore] = []
+    selected_ids: set[int] = set()
+    source_counts: dict[str, int] = {}
+
+    for score in sorted_scores:
+        if len(selected) >= limit:
+            break
+        source = score.quote.source
+        if source_counts.get(source, 0) >= per_source_limit:
+            continue
+        selected.append(score)
+        selected_ids.add(id(score))
+        source_counts[source] = source_counts.get(source, 0) + 1
+
+    for score in sorted_scores:
+        if len(selected) >= limit:
+            break
+        if id(score) in selected_ids:
+            continue
+        selected.append(score)
+
+    return selected
+
+
 def score_quotes(store: Store, quotes: Iterable[Quote], require_verified: bool) -> list[DealScore]:
     scores: list[DealScore] = []
     for quote in quotes:
@@ -292,6 +329,15 @@ def _source_notes(ctx: SourceContext) -> list[str]:
         for entry in entries:
             notes.append(f"{source}: {entry}")
     return notes
+
+
+def _count_by_source(quotes: Iterable[Quote]) -> str:
+    counts: dict[str, int] = {}
+    for quote in quotes:
+        counts[quote.source] = counts.get(quote.source, 0) + 1
+    if not counts:
+        return "none"
+    return ", ".join(f"{source}={count}" for source, count in sorted(counts.items()))
 
 
 def _error_text(exc: Exception) -> str:

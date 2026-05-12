@@ -10,7 +10,7 @@ import pytest
 from flight_deals_bot.config import ApiConfig, AppConfig, SearchConfig
 from flight_deals_bot.http import HttpError
 from flight_deals_bot.models import Cabin, Quote, SourceLimits
-from flight_deals_bot.pipeline import run_pipeline, select_summary_candidates, select_verification_candidates
+from flight_deals_bot.pipeline import run_pipeline, select_alert_scores, select_summary_candidates, select_verification_candidates
 from flight_deals_bot.sources.base import BaseAdapter, SourceContext
 from flight_deals_bot.sources.searchapi import SearchApiAdapter
 from flight_deals_bot.sources.travelpayouts import TravelpayoutsAdapter
@@ -223,6 +223,22 @@ def test_verification_candidates_keep_some_cheapest_economy_deals() -> None:
     assert any(quote.cabin is Cabin.FIRST for quote in selected)
 
 
+def test_alert_scores_keep_other_sources_when_travelpayouts_dominates() -> None:
+    from flight_deals_bot.models import Baseline, DealScore
+
+    scores = [
+        DealScore(_summary_quote("SEL", Cabin.ECONOMY, "5000"), Baseline(Decimal("12000"), 1, "fixture"), Decimal("0.6"), Decimal("90"), "x"),
+        DealScore(_summary_quote("NHA", Cabin.ECONOMY, "6000"), Baseline(Decimal("12000"), 1, "fixture"), Decimal("0.5"), Decimal("80"), "x"),
+        DealScore(_summary_quote("JKT", Cabin.ECONOMY, "7000"), Baseline(Decimal("12000"), 1, "fixture"), Decimal("0.4"), Decimal("70"), "x"),
+        DealScore(_source_quote("searchapi", "LAX", Cabin.BUSINESS, "78000"), Baseline(Decimal("160000"), 1, "fixture"), Decimal("0.5"), Decimal("60"), "x"),
+    ]
+
+    selected = select_alert_scores(scores, limit=3, per_source_limit=2)
+
+    assert [score.quote.source for score in selected].count("travelpayouts") == 2
+    assert any(score.quote.source == "searchapi" for score in selected)
+
+
 class FixtureAdapter(BaseAdapter):
     name = "fixture"
 
@@ -255,8 +271,12 @@ class FixtureAdapter(BaseAdapter):
 
 
 def _summary_quote(destination: str, cabin: Cabin, price: str) -> Quote:
+    return _source_quote("travelpayouts", destination, cabin, price)
+
+
+def _source_quote(source: str, destination: str, cabin: Cabin, price: str) -> Quote:
     return Quote(
-        source="fixture",
+        source=source,
         origin="TPE",
         destination=destination,
         departure_date=date(2026, 7, 15),
@@ -350,6 +370,7 @@ def _config() -> AppConfig:
             cabins=(Cabin.ECONOMY, Cabin.BUSINESS),
             top_verify_limit=5,
             max_alerts_per_run=3,
+            max_alerts_per_source=2,
             searchapi_explore_limit=3,
             searchapi_calendar_limit=6,
             searchapi_calendar_destinations=("NRT", "ICN"),

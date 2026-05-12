@@ -39,6 +39,7 @@ class SearchConfig:
     cabins: tuple[Cabin, ...]
     top_verify_limit: int
     max_alerts_per_run: int
+    max_alerts_per_source: int
     searchapi_explore_limit: int
     searchapi_calendar_limit: int
     searchapi_calendar_destinations: tuple[str, ...]
@@ -127,6 +128,7 @@ def load_config(env_file: str | None = ".env") -> AppConfig:
         cabins=cabins,
         top_verify_limit=_int("TOP_VERIFY_LIMIT", 18),
         max_alerts_per_run=_int("MAX_ALERTS_PER_RUN", 8),
+        max_alerts_per_source=_int("MAX_ALERTS_PER_SOURCE", 4),
         searchapi_explore_limit=_int("SEARCHAPI_EXPLORE_LIMIT", 3),
         searchapi_calendar_limit=_int("SEARCHAPI_CALENDAR_LIMIT", 10),
         searchapi_calendar_destinations=calendar_destinations,
