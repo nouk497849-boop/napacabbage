@@ -10,7 +10,7 @@ import pytest
 from flight_deals_bot.config import ApiConfig, AppConfig, SearchConfig
 from flight_deals_bot.http import HttpError
 from flight_deals_bot.models import Cabin, Quote, SourceLimits
-from flight_deals_bot.pipeline import run_pipeline, select_summary_candidates
+from flight_deals_bot.pipeline import run_pipeline, select_summary_candidates, select_verification_candidates
 from flight_deals_bot.sources.base import BaseAdapter, SourceContext
 from flight_deals_bot.sources.searchapi import SearchApiAdapter
 from flight_deals_bot.sources.travelpayouts import TravelpayoutsAdapter
@@ -175,6 +175,23 @@ def test_summary_candidates_keep_one_lowest_per_destination_cabin_and_rotate_cou
     assert selected[0].price == Decimal("64000")
     assert len([quote for quote in selected if quote.destination == "HND" and quote.cabin == Cabin.FIRST]) == 1
     assert {quote.destination for quote in selected} >= {"HND", "ICN", "HKG"}
+
+
+def test_verification_candidates_keep_some_cheapest_economy_deals() -> None:
+    quotes = [
+        _summary_quote("LAX", Cabin.FIRST, "90000"),
+        _summary_quote("HND", Cabin.FIRST, "64000"),
+        _summary_quote("ICN", Cabin.BUSINESS, "30000"),
+        _summary_quote("SEL", Cabin.ECONOMY, "5764"),
+        _summary_quote("NHA", Cabin.ECONOMY, "7627"),
+        _summary_quote("JKT", Cabin.ECONOMY, "8191"),
+    ]
+
+    selected = select_verification_candidates(quotes, limit=3)
+
+    assert selected[0].destination == "SEL"
+    assert any(quote.destination == "NHA" for quote in selected)
+    assert any(quote.cabin is Cabin.FIRST for quote in selected)
 
 
 class FixtureAdapter(BaseAdapter):

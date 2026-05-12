@@ -58,8 +58,7 @@ def test_no_deals_message_includes_city_country_continent_and_link() -> None:
     assert "SEL 首爾, 南韓" in message
     assert "亞洲・南韓" in message
     assert "長榮航空 (BR)" in message
-    assert "https://search.aviasales.com/flights/?" in message
-    assert "destination_iata=SEL" in message
+    assert "https://www.aviasales.com/search/TPE0110SEL08101" in message
 
 
 def test_deal_message_includes_localized_route_airline_flight_and_aircraft() -> None:
@@ -103,7 +102,7 @@ def test_deal_message_includes_localized_route_airline_flight_and_aircraft() -> 
     assert "航空公司：長榮航空 (BR)" in message
     assert "航班/機型：TPE-&gt;ICN 長榮航空 (BR) BR160 機型 Airbus A321" in message
     assert "Travelpayouts 快取票價" in message
-    assert "查看 Aviasales 票價" in message
+    assert "查看 Aviasales 該航線日期結果" in message
 
 
 def test_quote_link_rejects_searchapi_json_urls_and_uses_aviasales_fallback() -> None:
@@ -120,7 +119,5 @@ def test_quote_link_rejects_searchapi_json_urls_and_uses_aviasales_fallback() ->
 
     link = quote_link(quote)
 
-    assert link.startswith("https://search.aviasales.com/flights/?")
-    assert "origin_iata=TPE" in link
-    assert "destination_iata=HND" in link
+    assert link.startswith("https://www.aviasales.com/search/TPE1507HND18071?")
     assert "searchapi.io" not in link

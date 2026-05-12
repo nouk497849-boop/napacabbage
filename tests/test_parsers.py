@@ -34,9 +34,52 @@ def test_travelpayouts_latest_parser_handles_business_quote() -> None:
     assert quotes[0].destination == "NRT"
     assert quotes[0].cabin == Cabin.BUSINESS
     assert quotes[0].price == Decimal("18000")
-    assert quotes[0].booking_url and "search.aviasales.com/flights/" in quotes[0].booking_url
+    assert quotes[0].booking_url and "www.aviasales.com/search/TPE0110NRT08101" in quotes[0].booking_url
     assert "marker=727111" in quotes[0].booking_url
     assert quotes[0].segments[0].flight_number == "12"
+
+
+def test_travelpayouts_prices_for_dates_parser_enriches_details_and_deep_link() -> None:
+    fallback = Quote(
+        source="travelpayouts",
+        origin="TPE",
+        destination="SEL",
+        departure_date=date(2026, 8, 20),
+        return_date=date(2026, 8, 27),
+        cabin=Cabin.ECONOMY,
+        price=Decimal("6000"),
+    )
+    payload = {
+        "success": True,
+        "data": [
+            {
+                "origin": "TPE",
+                "destination": "SEL",
+                "origin_airport": "TPE",
+                "destination_airport": "ICN",
+                "departure_at": "2026-08-20T10:00:00+08:00",
+                "return_at": "2026-08-27T18:00:00+09:00",
+                "price": "5764",
+                "airline": "BR",
+                "flight_number": "160",
+                "transfers": 0,
+                "duration_to": 160,
+                "link": "/search/TPE2008SEL27081?t=abc",
+            }
+        ],
+    }
+
+    quotes = TravelpayoutsAdapter().parse_prices_for_dates(payload, fallback=fallback, currency="TWD", marker="727111")
+
+    assert len(quotes) == 1
+    assert quotes[0].verified is True
+    assert quotes[0].price == Decimal("5764")
+    assert quotes[0].airline == "BR"
+    assert quotes[0].segments[0].destination == "ICN"
+    assert quotes[0].segments[0].flight_number == "160"
+    assert quotes[0].segments[0].duration_minutes == 160
+    assert quotes[0].booking_url and quotes[0].booking_url.startswith("https://www.aviasales.com/search/TPE2008SEL27081")
+    assert "marker=727111" in quotes[0].booking_url
 
 
 def test_amadeus_offer_parser_preserves_mixed_cabin_longest_segment() -> None:

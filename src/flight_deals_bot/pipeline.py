@@ -145,6 +145,8 @@ def run_pipeline(
 
 
 def select_verification_candidates(quotes: Iterable[Quote], limit: int) -> list[Quote]:
+    if limit <= 0:
+        return []
     cabin_rank = {
         Cabin.FIRST: 0,
         Cabin.BUSINESS: 1,
@@ -165,7 +167,34 @@ def select_verification_candidates(quotes: Iterable[Quote], limit: int) -> list[
         existing = unique.get(key)
         if existing is None or quote.price < existing.price:
             unique[key] = quote
-    return sorted(unique.values(), key=lambda q: (cabin_rank[q.cabin], q.price))[:limit]
+    selected: list[Quote] = []
+    seen: set[tuple[str, str, str, str, Cabin]] = set()
+
+    def append_candidates(items: Iterable[Quote], cap: int | None = None) -> None:
+        added = 0
+        for quote in items:
+            if len(selected) >= limit:
+                return
+            key = (
+                quote.origin,
+                quote.destination,
+                quote.departure_date.isoformat(),
+                quote.return_date.isoformat() if quote.return_date else "",
+                quote.cabin,
+            )
+            if key in seen:
+                continue
+            selected.append(quote)
+            seen.add(key)
+            added += 1
+            if cap is not None and added >= cap:
+                return
+
+    all_candidates = list(unique.values())
+    cheap_quota = min(limit, max(2, limit // 3))
+    append_candidates(sorted(all_candidates, key=lambda q: q.price), cap=cheap_quota)
+    append_candidates(sorted(all_candidates, key=lambda q: (cabin_rank[q.cabin], q.price)))
+    return selected
 
 
 def select_summary_candidates(quotes: Iterable[Quote], limit: int) -> list[Quote]:

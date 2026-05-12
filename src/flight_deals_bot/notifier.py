@@ -76,7 +76,7 @@ def format_deal_message(score: DealScore) -> str:
         f"低 {html.escape(as_percent(score.discount))}",
         f"日期：{quote.departure_date.isoformat()} -> {quote.return_date.isoformat() if quote.return_date else 'one-way'}"
         + (f"（{quote.stay_nights} 晚）" if quote.stay_nights is not None else ""),
-        f"來源：{html.escape(quote.source)}" + ("（已驗價）" if quote.verified else "（快取/候選）"),
+        f"來源：{html.escape(quote.source)}（{html.escape(source_status_label(quote))}）",
     ]
     airline = format_airline_summary(quote)
     lines.append(f"航空公司：{html.escape(airline or '資料源未提供')}")
@@ -179,20 +179,13 @@ def quote_link(quote: Quote) -> str:
 
 
 def aviasales_search_link(quote: Quote) -> str:
+    search_code = aviasales_search_code(quote)
     params = {
-        "origin_iata": quote.origin,
-        "destination_iata": quote.destination,
-        "depart_date": quote.departure_date.isoformat(),
-        "return_date": quote.return_date.isoformat() if quote.return_date else "",
-        "one_way": "false" if quote.return_date else "true",
-        "adults": 1,
-        "children": 0,
-        "infants": 0,
         "trip_class": TRIP_CLASS.get(quote.cabin, 0),
         "currency": quote.currency,
         "locale": "zh",
     }
-    return "https://search.aviasales.com/flights/?" + urllib.parse.urlencode(params)
+    return f"https://www.aviasales.com/search/{search_code}?" + urllib.parse.urlencode(params)
 
 
 def google_flights_search_link(quote: Quote) -> str:
@@ -205,7 +198,7 @@ def google_flights_search_link(quote: Quote) -> str:
 
 
 def _is_public_booking_url(url: str) -> bool:
-    blocked_fragments = ("searchapi.io", "/api/v1/search", "google.com/travel/clk/f")
+    blocked_fragments = ("searchapi.io", "/api/v1/search", "google.com/travel/clk/f", "search.aviasales.com/flights")
     return url.startswith(("https://", "http://")) and not any(fragment in url for fragment in blocked_fragments)
 
 
@@ -271,6 +264,7 @@ def format_notes(notes: tuple[str, ...]) -> str:
 def _translate_note(note: str) -> str:
     translations = {
         "Travelpayouts latest prices are cached and should be rechecked before booking.": "Travelpayouts 快取票價，實際票價與座位請點連結重新確認。",
+        "Travelpayouts prices_for_dates 補到較完整的快取票價與 Aviasales 搜尋結果，實際票價仍請點進去確認。": "Travelpayouts 已補到較完整的快取票價與 Aviasales 搜尋結果，實際票價仍請點進去確認。",
         "SearchApi Google Flights Calendar candidate; verify before booking.": "SearchApi Google Flights Calendar 候選票，訂票前請重新確認票價與座位。",
         "Calendar marked this as a lowest-price date.": "Google Flights Calendar 標記這組日期為低價。",
         "SearchApi explore is a broad Google Travel candidate; verify before booking.": "SearchApi Explore 廣域候選票，訂票前請重新確認票價與座位。",
@@ -283,6 +277,19 @@ def _translate_note(note: str) -> str:
 def link_label(quote: Quote) -> str:
     if quote.booking_url and _is_public_booking_url(quote.booking_url):
         if "aviasales" in quote.booking_url:
-            return "查看 Aviasales 票價 / 搜尋此航線"
+            return "查看 Aviasales 該航線日期結果"
         return "前往訂票或驗價頁"
-    return "查看 Aviasales 搜尋結果"
+    return "查看 Aviasales 該航線日期結果"
+
+
+def source_status_label(quote: Quote) -> str:
+    if quote.source == "travelpayouts" and quote.verified:
+        return "已補航班/連結，仍需確認"
+    return "已驗價" if quote.verified else "快取/候選"
+
+
+def aviasales_search_code(quote: Quote) -> str:
+    code = f"{quote.origin}{quote.departure_date:%d%m}{quote.destination}"
+    if quote.return_date:
+        code += f"{quote.return_date:%d%m}"
+    return f"{code}1"
