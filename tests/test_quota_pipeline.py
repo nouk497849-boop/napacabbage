@@ -112,6 +112,35 @@ def test_searchapi_stops_current_run_after_provider_rate_limit() -> None:
     assert any("provider rate limit" in note for note in ctx.diagnostics["searchapi"])
 
 
+def test_searchapi_calendar_scans_premium_cabins_and_allows_connections() -> None:
+    config = _config()
+    config = replace(
+        config,
+        search=replace(
+            config.search,
+            origins=("TPE",),
+            cabins=(Cabin.ECONOMY, Cabin.BUSINESS, Cabin.FIRST),
+            stay_lengths=(7,),
+            searchapi_explore_limit=0,
+            searchapi_calendar_limit=3,
+            searchapi_calendar_destinations=("NRT", "LAX"),
+        ),
+        api=replace(config.api, searchapi_key="key"),
+        source_limits={"searchapi": SourceLimits(daily=10, monthly=10)},
+    )
+    http = RecordingSearchApiCalendarHttp()
+    ctx = SourceContext(config=config, http=http, store=InMemoryStore())
+
+    SearchApiAdapter().discover(ctx)
+
+    travel_classes = [call["travel_class"] for call in http.calls]
+    assert travel_classes == ["business", "first_class", "economy"]
+    assert all(call["stops"] == "any" for call in http.calls)
+    assert all(call["separate_tickets"] == 0 for call in http.calls)
+    assert any("connections allowed" in note for note in ctx.diagnostics["searchapi"])
+    assert any("business=1" in note and "first=1" in note and "economy=1" in note for note in ctx.diagnostics["searchapi"])
+
+
 def test_travelpayouts_latest_prices_requests_only_economy_trip_class() -> None:
     config = _config()
     config = replace(
@@ -271,6 +300,19 @@ class RateLimitedSearchApiHttp:
     def get_json(self, url, params=None, headers=None):  # noqa: ANN001
         self.calls += 1
         raise HttpError(429, url, "rate limit")
+
+
+class RecordingSearchApiCalendarHttp:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def get_json(self, url, params=None, headers=None):  # noqa: ANN001
+        self.calls.append(dict(params or {}))
+        return {
+            "search_metadata": {"google_url": "https://www.google.com/travel/flights/search"},
+            "search_parameters": {"currency": "TWD"},
+            "calendar": [],
+        }
 
 
 class RecordingTravelpayoutsHttp:

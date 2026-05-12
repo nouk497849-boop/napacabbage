@@ -53,6 +53,14 @@ def run_pipeline(
 
     enabled_adapters = [adapter for adapter in adapters if adapter.enabled(config)]
     print(f"Enabled sources: {', '.join(adapter.name for adapter in enabled_adapters) or 'none'}", file=output)
+    print(
+        "Search settings: "
+        f"cabins={','.join(cabin.value for cabin in config.search.cabins)}; "
+        "connections=allowed; "
+        f"origins={','.join(config.search.origins)}; "
+        f"stay_lengths={','.join(str(item) for item in config.search.stay_lengths)}",
+        file=output,
+    )
     if not config.database_url:
         print("DATABASE_URL is not set; using in-memory storage for this run only.", file=output)
 

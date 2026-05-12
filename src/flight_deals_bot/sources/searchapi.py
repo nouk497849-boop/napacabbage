@@ -100,8 +100,15 @@ class SearchApiAdapter(BaseAdapter):
         destinations = _calendar_destinations(ctx, explore_quotes)
         windows = _calendar_windows(ctx)
         cabins = sorted(ctx.config.search.cabins, key=_cabin_priority)
+        ctx.note(
+            self.name,
+            "SearchApi Calendar scanning cabins="
+            + ",".join(cabin.value for cabin in cabins)
+            + "; connections allowed with stops=any; self-transfer disabled",
+        )
         min_stay = min(ctx.config.search.stay_lengths)
         max_stay = max(ctx.config.search.stay_lengths)
+        attempts_by_cabin: dict[Cabin, int] = {cabin: 0 for cabin in cabins}
         for origin, destination, cabin, outbound_start, outbound_end in _calendar_plans(
             ctx.config.search.origins,
             destinations,
@@ -112,7 +119,8 @@ class SearchApiAdapter(BaseAdapter):
                 sent = ctx.provider_request_count(self.name) - start_count
                 ctx.note(
                     self.name,
-                    f"SearchApi Calendar attempted {attempts} request(s), sent {sent}, saw {rows_seen} row(s), parsed {len(quotes)} candidate(s)",
+                    f"SearchApi Calendar attempted {attempts} request(s), sent {sent}, saw {rows_seen} row(s), parsed {len(quotes)} candidate(s); "
+                    f"by cabin: {_format_cabin_counts(attempts_by_cabin)}",
                 )
                 return quotes
             if origin == destination:
@@ -120,6 +128,7 @@ class SearchApiAdapter(BaseAdapter):
             return_start = outbound_start + timedelta(days=min_stay)
             return_end = outbound_end + timedelta(days=max_stay)
             attempts += 1
+            attempts_by_cabin[cabin] = attempts_by_cabin.get(cabin, 0) + 1
             payload = self._get_json_or_note(
                 ctx,
                 label=f"Calendar {origin}-{destination} {cabin.value}",
@@ -178,7 +187,8 @@ class SearchApiAdapter(BaseAdapter):
         sent = ctx.provider_request_count(self.name) - start_count
         ctx.note(
             self.name,
-            f"SearchApi Calendar attempted {attempts} request(s), sent {sent}, saw {rows_seen} row(s), parsed {len(quotes)} candidate(s)",
+            f"SearchApi Calendar attempted {attempts} request(s), sent {sent}, saw {rows_seen} row(s), parsed {len(quotes)} candidate(s); "
+            f"by cabin: {_format_cabin_counts(attempts_by_cabin)}",
         )
         return quotes
 
@@ -541,32 +551,40 @@ def _calendar_plans(
 ):
     if not origins or not destinations or not cabins or not windows:
         return
-    origin_pool = _weighted_origins(origins)
-    total_unique = len(origins) * len(destinations) * len(cabins) * len(windows)
+    origin_pool = _unique_weighted_origins(origins)
     seen: set[tuple[str, str, Cabin, date, date]] = set()
-    max_iterations = max(total_unique * max(len(origin_pool), len(destinations), len(cabins), len(windows)), total_unique)
-    index = 0
-    while len(seen) < total_unique and index < max_iterations:
-        origin = origin_pool[index % len(origin_pool)]
-        destination = destinations[index % len(destinations)]
-        cabin = cabins[index % len(cabins)]
-        outbound_start, outbound_end = windows[index % len(windows)]
-        index += 1
-        key = (origin, destination, cabin, outbound_start, outbound_end)
-        if key in seen:
-            continue
-        seen.add(key)
-        yield key
 
-    for origin in origins:
+    for window_index, (outbound_start, outbound_end) in enumerate(windows):
+        for destination_index, destination in enumerate(destinations):
+            for cabin_index, cabin in enumerate(cabins):
+                origin = origin_pool[(window_index + destination_index + cabin_index) % len(origin_pool)]
+                key = (origin, destination, cabin, outbound_start, outbound_end)
+                if key in seen:
+                    continue
+                seen.add(key)
+                yield key
+
+    for outbound_start, outbound_end in windows:
         for destination in destinations:
             for cabin in cabins:
-                for outbound_start, outbound_end in windows:
+                for origin in origin_pool:
                     key = (origin, destination, cabin, outbound_start, outbound_end)
                     if key in seen:
                         continue
                     seen.add(key)
                     yield key
+
+
+def _unique_weighted_origins(origins: tuple[str, ...]) -> tuple[str, ...]:
+    unique: list[str] = []
+    for origin in _weighted_origins(origins):
+        if origin not in unique:
+            unique.append(origin)
+    return tuple(unique or origins)
+
+
+def _format_cabin_counts(counts: dict[Cabin, int]) -> str:
+    return ", ".join(f"{cabin.value}={count}" for cabin, count in counts.items())
 
 
 def _weighted_origins(origins: tuple[str, ...]) -> tuple[str, ...]:
