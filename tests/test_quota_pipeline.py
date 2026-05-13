@@ -9,7 +9,7 @@ import pytest
 
 from flight_deals_bot.config import ApiConfig, AppConfig, SearchConfig
 from flight_deals_bot.http import HttpError
-from flight_deals_bot.models import Cabin, Quote, SourceLimits
+from flight_deals_bot.models import AlertRecord, Cabin, Quote, SourceLimits
 from flight_deals_bot.pipeline import run_pipeline, select_alert_scores, select_summary_candidates, select_verification_candidates
 from flight_deals_bot.sources.base import BaseAdapter, SourceContext
 from flight_deals_bot.sources.searchapi import SearchApiAdapter
@@ -185,6 +185,38 @@ def test_pipeline_dry_run_scores_and_formats_alert() -> None:
     assert "Taiwan Taoyuan International Airport" in result.messages[0]
     assert "Narita International Airport" in result.messages[0]
     assert "日本" in result.messages[0]
+
+
+def test_pipeline_no_deal_notice_counts_scores_suppressed_by_cooldown() -> None:
+    config = _config()
+    store = InMemoryStore()
+    quote = Quote(
+        source="fixture",
+        origin="TPE",
+        destination="NRT",
+        departure_date=date(2026, 10, 1),
+        return_date=date(2026, 10, 8),
+        cabin=Cabin.BUSINESS,
+        price=Decimal("50000"),
+        airline="B",
+    )
+    store.alerts.append(AlertRecord(deal_key=quote.deal_key, price=quote.price, sent_at=datetime.now(timezone.utc)))
+    output = io.StringIO()
+
+    result = run_pipeline(
+        config=config,
+        dry_run=True,
+        store=store,
+        adapters=[FixtureAdapter()],
+        output=output,
+    )
+
+    assert result.scored_count == 1
+    assert result.alerted_count == 1
+    assert "有找到符合低價門檻的機票" in result.messages[0]
+    assert "符合門檻：1" in result.messages[0]
+    assert "冷卻略過：1" in result.messages[0]
+    assert "fixture：候選 2 / 符合 1 / 冷卻 1" in result.messages[0]
 
 
 def test_summary_candidates_keep_one_lowest_per_destination_cabin_and_rotate_countries() -> None:

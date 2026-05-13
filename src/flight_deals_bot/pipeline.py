@@ -26,6 +26,9 @@ class RunResult:
     source_errors: dict[str, str]
 
 
+SourceStats = dict[str, dict[str, int]]
+
+
 def build_adapters() -> list[SourceAdapter]:
     return [
         TravelpayoutsAdapter(),
@@ -68,11 +71,13 @@ def run_pipeline(
     verified: list[Quote] = []
     source_errors: dict[str, str] = {}
     printed_diagnostics: dict[str, int] = {}
+    source_stats = _initial_source_stats(adapter.name for adapter in enabled_adapters)
 
     for adapter in enabled_adapters:
         try:
             quotes = adapter.discover(ctx)
             discovered.extend(quotes)
+            source_stats[adapter.name]["discovered"] = len(quotes)
             print(f"{adapter.name}: discovered {len(quotes)} candidates", file=output)
             _print_new_diagnostics(ctx, adapter.name, printed_diagnostics, output)
         except Exception as exc:  # noqa: BLE001 - source failures should not stop the whole scan
@@ -88,6 +93,7 @@ def run_pipeline(
         try:
             quotes = adapter.verify(ctx, candidates)
             verified.extend(quotes)
+            source_stats[adapter.name]["verified"] = len(quotes)
             if quotes:
                 print(f"{adapter.name}: verified {len(quotes)} quotes", file=output)
             _print_new_diagnostics(ctx, adapter.name, printed_diagnostics, output)
@@ -97,24 +103,33 @@ def run_pipeline(
             _print_new_diagnostics(ctx, adapter.name, printed_diagnostics, output)
 
     store.save_quotes(verified)
-    scores = score_quotes(store, discovered + verified, require_verified=config.search.require_verified_alerts)
-    scores = dedupe_scores(scores)
-    scores = [
-        score
-        for score in scores
-        if not should_suppress_alert(
+    scored_scores = score_quotes(store, discovered + verified, require_verified=config.search.require_verified_alerts)
+    scored_scores = dedupe_scores(scored_scores)
+    _add_score_stats(source_stats, scored_scores, "scored")
+    print(f"Scored by source: {_count_by_source(score.quote for score in scored_scores)}", file=output)
+
+    alertable_scores: list[DealScore] = []
+    suppressed_scores: list[DealScore] = []
+    for score in scored_scores:
+        if should_suppress_alert(
             store,
             score,
             cooldown_hours=int(config.search.alert_cooldown.total_seconds() // 3600),
             price_drop_pct=config.search.alert_price_drop_pct,
-        )
-    ]
-    print(f"Scored by source: {_count_by_source(score.quote for score in scores)}", file=output)
+        ):
+            suppressed_scores.append(score)
+            continue
+        alertable_scores.append(score)
+    _add_score_stats(source_stats, suppressed_scores, "suppressed")
+    if suppressed_scores:
+        print(f"Suppressed by cooldown: {_count_by_source(score.quote for score in suppressed_scores)}", file=output)
+
     scores = select_alert_scores(
-        scores,
+        alertable_scores,
         limit=config.search.max_alerts_per_run,
         per_source_limit=config.search.max_alerts_per_source,
     )
+    _add_score_stats(source_stats, scores, "selected")
     print(f"Selected alerts by source: {_count_by_source(score.quote for score in scores)}", file=output)
 
     notifier = TelegramNotifier(config.telegram_bot_token, config.telegram_chat_id, http=http)
@@ -129,9 +144,12 @@ def run_pipeline(
         no_deals_message = format_no_deals_message(
             discovered_count=len(discovered),
             verified_count=len(verified),
-            scored_count=0,
+            scored_count=len(scored_scores),
+            alertable_count=len(alertable_scores),
+            suppressed_count=len(suppressed_scores),
             enabled_sources=[adapter.name for adapter in enabled_adapters],
             candidates=select_summary_candidates(discovered + verified, config.search.no_deal_candidate_limit),
+            source_stats=source_stats,
             source_notes=_source_notes(ctx),
             source_errors=source_errors,
         )
@@ -151,7 +169,7 @@ def run_pipeline(
     return RunResult(
         discovered_count=len(discovered),
         verified_count=len(verified),
-        scored_count=len(scores),
+        scored_count=len(scored_scores),
         alerted_count=len(messages),
         messages=messages,
         source_errors=source_errors,
@@ -338,6 +356,21 @@ def _count_by_source(quotes: Iterable[Quote]) -> str:
     if not counts:
         return "none"
     return ", ".join(f"{source}={count}" for source, count in sorted(counts.items()))
+
+
+def _initial_source_stats(sources: Iterable[str]) -> SourceStats:
+    return {source: _empty_source_stat() for source in sources}
+
+
+def _empty_source_stat() -> dict[str, int]:
+    return {"discovered": 0, "verified": 0, "scored": 0, "suppressed": 0, "selected": 0}
+
+
+def _add_score_stats(stats: SourceStats, scores: Iterable[DealScore], field: str) -> None:
+    for score in scores:
+        source = score.quote.source
+        stats.setdefault(source, _empty_source_stat())
+        stats[source][field] = stats[source].get(field, 0) + 1
 
 
 def _error_text(exc: Exception) -> str:

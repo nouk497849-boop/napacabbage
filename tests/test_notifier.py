@@ -35,6 +35,10 @@ def test_no_deals_message_includes_city_country_continent_and_link() -> None:
         verified_count=18,
         scored_count=0,
         enabled_sources=["travelpayouts", "searchapi"],
+        source_stats={
+            "travelpayouts": {"discovered": 58, "verified": 18, "scored": 0, "suppressed": 0, "selected": 0},
+            "searchapi": {"discovered": 0, "verified": 0, "scored": 0, "suppressed": 0, "selected": 0},
+        },
         candidates=[
             Quote(
                 source="travelpayouts",
@@ -54,11 +58,34 @@ def test_no_deals_message_includes_city_country_continent_and_link() -> None:
     assert "目前沒有找到符合低價門檻的機票" in message
     assert "候選票：58" in message
     assert "資料源：travelpayouts, searchapi" in message
+    assert "travelpayouts：候選 58 / 驗價 18" in message
+    assert "searchapi：無結果" in message
     assert "<b>亞洲</b>" in message
     assert "SEL 首爾, 南韓" in message
     assert "亞洲・南韓" in message
     assert "長榮航空 (BR)" in message
     assert "https://www.aviasales.com/search/TPE0110SEL08101" in message
+
+
+def test_no_deals_message_separates_cooldown_from_no_deal() -> None:
+    message = format_no_deals_message(
+        discovered_count=80,
+        verified_count=178,
+        scored_count=6,
+        alertable_count=0,
+        suppressed_count=6,
+        enabled_sources=["travelpayouts", "searchapi"],
+        source_stats={
+            "travelpayouts": {"discovered": 80, "verified": 178, "scored": 6, "suppressed": 6, "selected": 0},
+            "searchapi": {"discovered": 0, "verified": 0, "scored": 0, "suppressed": 0, "selected": 0},
+        },
+    )
+
+    assert "有找到符合低價門檻的機票" in message
+    assert "符合門檻：6" in message
+    assert "本次可推播：0" in message
+    assert "冷卻略過：6" in message
+    assert "travelpayouts：候選 80 / 驗價 178 / 符合 6 / 冷卻 6" in message
 
 
 def test_deal_message_includes_localized_route_airline_flight_and_aircraft() -> None:

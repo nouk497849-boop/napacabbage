@@ -111,18 +111,37 @@ def format_no_deals_message(
     verified_count: int,
     scored_count: int,
     enabled_sources: list[str],
+    alertable_count: int | None = None,
+    suppressed_count: int = 0,
     candidates: list[Quote] | None = None,
+    source_stats: dict[str, dict[str, int]] | None = None,
     source_notes: list[str] | None = None,
     source_errors: dict[str, str] | None = None,
 ) -> str:
+    status = "目前沒有找到符合低價門檻的機票。"
+    if scored_count > 0 and alertable_count == 0 and suppressed_count > 0:
+        status = "有找到符合低價門檻的機票，但都在 24 小時冷卻期內，這次不重複推播正式提醒。"
+    elif scored_count > 0 and alertable_count == 0:
+        status = "有找到符合低價門檻的機票，但這次沒有新的可推播正式提醒。"
+
     lines = [
         "<b>機票價格查詢完成</b>",
-        "目前沒有找到符合低價門檻的機票。",
+        status,
         f"候選票：{discovered_count}",
         f"驗價票：{verified_count}",
         f"符合門檻：{scored_count}",
-        "資料源：" + html.escape(", ".join(enabled_sources) if enabled_sources else "none"),
     ]
+    if alertable_count is not None:
+        lines.append(f"本次可推播：{alertable_count}")
+    if suppressed_count:
+        lines.append(f"冷卻略過：{suppressed_count}")
+    lines.append("資料源：" + html.escape(", ".join(enabled_sources) if enabled_sources else "none"))
+    if source_stats:
+        stat_lines = format_source_stats(source_stats)
+        if stat_lines:
+            lines.append("")
+            lines.append("<b>來源統計</b>")
+            lines.extend(stat_lines)
     if candidates:
         lines.append("")
         lines.append("<b>候選票前幾筆</b>")
@@ -139,6 +158,23 @@ def format_no_deals_message(
         compact = "; ".join(f"{key}: {value}" for key, value in source_errors.items())
         lines.append("錯誤：" + html.escape(compact[:500]))
     return "\n".join(lines)
+
+
+def format_source_stats(source_stats: dict[str, dict[str, int]]) -> list[str]:
+    lines: list[str] = []
+    labels = {
+        "discovered": "候選",
+        "verified": "驗價",
+        "scored": "符合",
+        "suppressed": "冷卻",
+        "selected": "本次推播",
+    }
+    for source, stats in sorted(source_stats.items()):
+        parts = [f"{label} {stats[key]}" for key, label in labels.items() if stats.get(key)]
+        if not parts:
+            parts = ["無結果"]
+        lines.append(f"{html.escape(source)}：{html.escape(' / '.join(parts))}")
+    return lines
 
 
 def format_candidate_line(index: int, quote: Quote) -> str:
