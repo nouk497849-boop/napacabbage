@@ -27,6 +27,7 @@ def test_telegram_send_text_posts_message() -> None:
     assert url == "https://api.telegram.org/bottoken/sendMessage"
     assert payload["chat_id"] == "chat"
     assert payload["text"] == "hello"
+    assert payload["disable_web_page_preview"] is True
 
 
 def test_no_deals_message_includes_city_country_continent_and_link() -> None:

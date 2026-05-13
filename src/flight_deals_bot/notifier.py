@@ -53,7 +53,7 @@ class TelegramNotifier:
                 "chat_id": self.chat_id,
                 "text": message,
                 "parse_mode": "HTML",
-                "disable_web_page_preview": False,
+                "disable_web_page_preview": True,
             },
         )
 
@@ -66,14 +66,17 @@ def format_deal_message(score: DealScore) -> str:
     destination_country = airport_country_label(quote.destination) or "未知"
     lines = [
         f"<b>低價機票提醒</b>",
+        "",
         f"航線：{html.escape(route)}",
         f"目的地國家：{html.escape(destination_country)}",
         f"洲別分類：{html.escape(continent)}",
+        "",
         f"艙等：{html.escape(cabin)}",
         f"價格：{html.escape(format_money(quote.price, quote.currency))}",
         f"原價/基準：{html.escape(format_money(score.baseline.price, quote.currency))}，"
         f"目前約為原價 {html.escape(as_price_ratio(quote.price, score.baseline.price))}，"
         f"低 {html.escape(as_percent(score.discount))}",
+        "",
         f"日期：{quote.departure_date.isoformat()} -> {quote.return_date.isoformat() if quote.return_date else 'one-way'}"
         + (f"（{quote.stay_nights} 晚）" if quote.stay_nights is not None else ""),
         f"來源：{html.escape(quote.source)}（{html.escape(source_status_label(quote))}）",
@@ -93,6 +96,7 @@ def format_deal_message(score: DealScore) -> str:
         lines.append(f"混艙：是，最長航段為 {cabin_label(quote.longest_segment_cabin)}")
     if quote.notes:
         lines.append("備註：" + html.escape(format_notes(quote.notes)))
+    lines.append("")
     lines.append(f"<a href=\"{html.escape(quote_link(quote))}\">{html.escape(link_label(quote))}</a>")
     return "\n".join(lines)
 
@@ -113,20 +117,25 @@ def format_no_deals_message(
     enabled_sources: list[str],
     alertable_count: int | None = None,
     suppressed_count: int = 0,
+    cooldown_hours: int = 24,
     candidates: list[Quote] | None = None,
+    cooldown_scores: list[DealScore] | None = None,
     source_stats: dict[str, dict[str, int]] | None = None,
     source_notes: list[str] | None = None,
     source_errors: dict[str, str] | None = None,
 ) -> str:
     status = "目前沒有找到符合低價門檻的機票。"
     if scored_count > 0 and alertable_count == 0 and suppressed_count > 0:
-        status = "有找到符合低價門檻的機票，但都在 24 小時冷卻期內，這次不重複推播正式提醒。"
+        status = f"有找到符合低價門檻的機票，但都在 {cooldown_hours} 小時冷卻期內，這次不重複推播正式提醒。"
     elif scored_count > 0 and alertable_count == 0:
         status = "有找到符合低價門檻的機票，但這次沒有新的可推播正式提醒。"
 
     lines = [
         "<b>機票價格查詢完成</b>",
+        "",
         status,
+        "",
+        "<b>本次統計</b>",
         f"候選票：{discovered_count}",
         f"驗價票：{verified_count}",
         f"符合門檻：{scored_count}",
@@ -142,6 +151,14 @@ def format_no_deals_message(
             lines.append("")
             lines.append("<b>來源統計</b>")
             lines.extend(stat_lines)
+    if cooldown_scores:
+        lines.append("")
+        lines.append("<b>冷卻中的低價票</b>")
+        lines.append("這些票已符合低價門檻，但冷卻期內不重複發正式提醒。")
+        for index, score in enumerate(cooldown_scores, start=1):
+            if index > 1:
+                lines.append("")
+            lines.extend(format_score_preview_lines(index, score))
     if candidates:
         lines.append("")
         lines.append("<b>候選票前幾筆</b>")
@@ -149,7 +166,9 @@ def format_no_deals_message(
         for continent, quotes in group_candidates_by_continent(candidates):
             lines.append(f"<b>{html.escape(continent)}</b>")
             for quote in quotes:
-                lines.append(format_candidate_line(index, quote))
+                if index > 1:
+                    lines.append("")
+                lines.extend(format_candidate_preview_lines(index, quote))
                 index += 1
     if source_notes:
         compact_notes = "; ".join(source_notes)
@@ -178,26 +197,50 @@ def format_source_stats(source_stats: dict[str, dict[str, int]]) -> list[str]:
 
 
 def format_candidate_line(index: int, quote: Quote) -> str:
+    return " / ".join(format_candidate_preview_lines(index, quote))
+
+
+def format_candidate_preview_lines(index: int, quote: Quote) -> list[str]:
     cabin = cabin_label(quote.cabin)
     return_date = quote.return_date.isoformat() if quote.return_date else "one-way"
-    stay = f", {quote.stay_nights} 晚" if quote.stay_nights is not None else ""
+    stay = f"（{quote.stay_nights} 晚）" if quote.stay_nights is not None else ""
     status = "已驗價" if quote.verified else "候選"
-    stops = f", 轉機 {quote.stops} 次" if quote.stops is not None else ""
+    stops = f"轉機 {quote.stops} 次" if quote.stops is not None else "轉機資訊未提供"
     airline = format_airline_summary(quote)
-    airline_text = f", {html.escape(airline)}" if airline else ""
+    airline_text = airline or "航空公司未提供"
     reference = display_reference_price(quote)
-    price_ratio = f", 約原價 {as_price_ratio(quote.price, reference)}" if reference else ""
+    price_ratio = f"（約原價 {as_price_ratio(quote.price, reference)}）" if reference else ""
     continent = airport_continent_label(quote.destination)
     country = airport_country_label(quote.destination) or "未知"
     route = format_route(quote)
     link = quote_link(quote)
-    return (
-        f'{index}. <a href="{html.escape(link)}">{html.escape(route)}</a> '
-        f"{quote.departure_date.isoformat()} -> {return_date}{stay}, "
-        f"{html.escape(continent)}・{html.escape(country)}, {html.escape(cabin)}, {html.escape(format_money(quote.price, quote.currency))}"
-        f"{html.escape(price_ratio)}, "
-        f"{html.escape(quote.source)}（{status}）{airline_text}{stops}"
-    )
+    return [
+        f'{index}. <a href="{html.escape(link)}">{html.escape(route)}</a>',
+        f"日期：{quote.departure_date.isoformat()} -> {return_date}{stay}",
+        f"分類：{html.escape(continent)}・{html.escape(country)} / 艙等：{html.escape(cabin)}",
+        f"價格：{html.escape(format_money(quote.price, quote.currency))} {html.escape(price_ratio)}",
+        f"來源：{html.escape(quote.source)}（{status}） / {html.escape(airline_text)} / {html.escape(stops)}",
+    ]
+
+
+def format_score_preview_lines(index: int, score: DealScore) -> list[str]:
+    quote = score.quote
+    cabin = cabin_label(quote.cabin)
+    return_date = quote.return_date.isoformat() if quote.return_date else "one-way"
+    stay = f"（{quote.stay_nights} 晚）" if quote.stay_nights is not None else ""
+    continent = airport_continent_label(quote.destination)
+    country = airport_country_label(quote.destination) or "未知"
+    route = format_route(quote)
+    airline = format_airline_summary(quote) or "航空公司未提供"
+    stops = f"轉機 {quote.stops} 次" if quote.stops is not None else "轉機資訊未提供"
+    status = "已驗價" if quote.verified else "候選"
+    return [
+        f'{index}. <a href="{html.escape(quote_link(quote))}">{html.escape(route)}</a>',
+        f"日期：{quote.departure_date.isoformat()} -> {return_date}{stay}",
+        f"分類：{html.escape(continent)}・{html.escape(country)} / 艙等：{html.escape(cabin)}",
+        f"價格：{html.escape(format_money(quote.price, quote.currency))}（約原價 {html.escape(as_price_ratio(quote.price, score.baseline.price))}，低 {html.escape(as_percent(score.discount))}）",
+        f"來源：{html.escape(quote.source)}（{status}） / {html.escape(airline)} / {html.escape(stops)}",
+    ]
 
 
 def group_candidates_by_continent(candidates: list[Quote]) -> list[tuple[str, list[Quote]]]:

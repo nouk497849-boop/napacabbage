@@ -217,6 +217,8 @@ def test_pipeline_no_deal_notice_counts_scores_suppressed_by_cooldown() -> None:
     assert "符合門檻：1" in result.messages[0]
     assert "冷卻略過：1" in result.messages[0]
     assert "fixture：候選 2 / 符合 1 / 冷卻 1" in result.messages[0]
+    assert "<b>冷卻中的低價票</b>" in result.messages[0]
+    assert "價格：TWD 50,000（約原價 52%，低 48%）" in result.messages[0]
 
 
 def test_summary_candidates_keep_one_lowest_per_destination_cabin_and_rotate_countries() -> None:
